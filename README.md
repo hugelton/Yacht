@@ -1,4 +1,4 @@
-# Yacht - Music Creation Tool for Playdate
+# Yacht - The Handheld Music Studio
 
 ![playError](https://github.com/user-attachments/assets/907fee07-843b-4c3c-88b1-6a7b0c864eca)
 
