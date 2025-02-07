@@ -1,6 +1,5 @@
 # Yacht - The Handheld Music Studio
-
-![playError](https://github.com/user-attachments/assets/907fee07-843b-4c3c-88b1-6a7b0c864eca)
+![card](https://github.com/user-attachments/assets/c2ccc0da-5949-4fd8-b213-61de6916fb7b)
 
 Yacht is a music creation tool designed for the Playdate handheld gaming system. It features a piano roll sequencer, drum pattern editor, synthesizer controls, and song arrangement capabilities.
 
