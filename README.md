@@ -1,5 +1,7 @@
 # Yacht - Music Creation Tool for Playdate
 
+![playError](https://github.com/user-attachments/assets/907fee07-843b-4c3c-88b1-6a7b0c864eca)
+
 Yacht is a music creation tool designed for the Playdate handheld gaming system. It features a piano roll sequencer, drum pattern editor, synthesizer controls, and song arrangement capabilities.
 
 https://kurogedelic.itch.io/yacht
