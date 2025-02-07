@@ -1,0 +1,12 @@
+--------
+---
+---
+---   MIDI
+---   TODO
+---   message over text serial message like SerialOSC
+---
+---
+---
+---
+---
+---

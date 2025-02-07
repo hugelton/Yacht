@@ -1,0 +1,7 @@
+name=Yacht
+author=hugelton
+description=Handheld Music Studio
+bundleID=com.hugelton.yacht
+version=1.0.2
+buildNumber=102
+imagePath=SystemAssets
