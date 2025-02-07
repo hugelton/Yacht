@@ -23,7 +23,21 @@ Save and load project data on JSON file.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+### Source Code
+The source code is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
+
+### UI Graphics and Assets
+All UI graphics and visual assets are licensed under Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0). This means you are free to:
+
+Share — copy and redistribute the material in any medium or format
+Adapt — remix, transform, and build upon the material
+
+Under the following terms:
+
+Attribution — You must give appropriate credit
+NonCommercial — You may not use the material for commercial purposes
+ShareAlike — If you remix, transform, or build upon the material, you must distribute your contributions under the same license
+
 
 ## Acknowledgments
 
