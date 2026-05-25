@@ -1,7 +1,6 @@
 -- Sounds.lua
 
 local snd = playdate.sound
-local sail = sail -- data.luaからsailを参照
 
 Sounds = {}
 Sounds.soloState = {
@@ -397,6 +396,7 @@ function Sounds.setChannel(channelName, parameter, value)
 end
 
 function Sounds.updateEchoParameters()
+    if not sail.effects or not sail.effects.echo then return end
     Sounds.echo:setFeedback(sail.effects.echo.feedback)
 
     for channelName, channelData in pairs(sail.mixer) do

@@ -1,6 +1,6 @@
 local gfx <const> = playdate.graphics
 
-local sail = sail
+
 
 Mixer = {}
 

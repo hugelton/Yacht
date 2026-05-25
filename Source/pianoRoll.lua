@@ -375,7 +375,8 @@ function PianoRoll.drawKeys()
 end
 
 function PianoRoll.drawScrollBar()
-    local currentPattern = boat.synths[PianoRoll.currentRegion][PianoRoll.currentTrack]
+    local currentPattern = boat and boat.synths and boat.synths[PianoRoll.currentRegion] and boat.synths[PianoRoll.currentRegion][PianoRoll.currentTrack]
+    if not currentPattern then return end
     for i = 1, 16 do
         local tinyX = i * 2 + 309
         local tinyY = (((127 - currentPattern.notes[i]) / 127) * 156) + 55

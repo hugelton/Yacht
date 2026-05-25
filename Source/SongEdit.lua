@@ -220,7 +220,6 @@ function SongEdit.draw()
             local gridPosition = SongEdit.scrollOffset + x
             if gridPosition <= SongEdit.maxRegions then
                 if y == 1 then -- lengthトラック
-                    local regionText = tostring(region)
                     local textWidth, textHeight = gfx.getTextSize(gridPosition)
                     local textX = SongEdit.cursors[y][x].x + (SongEdit.cursors[y][x].w - textWidth) / 2
                     local textY = SongEdit.cursors[y][x].y + (SongEdit.cursors[y][x].h - textHeight) / 2 - 16
