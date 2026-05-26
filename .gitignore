@@ -41,3 +41,7 @@ luac.out
 
 
 .DS_Store
+
+# Playdate build outputs
+*.pdx
+Output.pdx/
