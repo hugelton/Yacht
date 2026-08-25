@@ -40,6 +40,16 @@ local function runtimeSounds(mode)
     return NullSounds
 end
 
+local function legacyMode()
+    if Music and (Music.mode == "region" or Music.mode == "song") then return Music.mode end
+    return "song"
+end
+
+local function legacyPosition()
+    if Music and tonumber(Music.currentPosition) then return tonumber(Music.currentPosition) end
+    return 1
+end
+
 function FuneBridge:available()
     return type(FunePlaydate) == "table"
         and type(FunePlaydate.yacht_runtime) == "table"
@@ -77,6 +87,8 @@ function FuneBridge:rebuild(mode)
             boat = boat,
             settings = settings,
             sounds = runtimeSounds(mode),
+            mode = legacyMode(),
+            position = legacyPosition(),
         })
     end)
 
@@ -98,7 +110,7 @@ end
 
 function FuneBridge:enableShadow()
     local ok, message = self:rebuild("shadow")
-    if ok then self:syncLegacyPlayback() end
+    if ok then self:syncLegacyState() end
     return ok, message
 end
 
@@ -199,6 +211,19 @@ function FuneBridge:stop()
     return true
 end
 
+function FuneBridge:syncLegacyNavigation()
+    if not self.runtime or not Music then return end
+    if not self.runtime.mode_name or not self.runtime.position_value then return end
+
+    local targetMode = legacyMode()
+    local targetPosition = legacyPosition()
+    if self.runtime:mode_name() ~= targetMode then
+        self.runtime:set_mode(targetMode, targetPosition, "none")
+    elseif self.runtime:position_value() ~= targetPosition then
+        self.runtime:set_position(targetPosition, "none")
+    end
+end
+
 function FuneBridge:syncLegacyPlayback()
     if self.mode ~= "shadow" or not self.runtime or not Music then return end
     local legacyPlaying = Music.state == true
@@ -208,6 +233,11 @@ function FuneBridge:syncLegacyPlayback()
     elseif not legacyPlaying and funePlaying then
         self:pause()
     end
+end
+
+function FuneBridge:syncLegacyState()
+    self:syncLegacyNavigation()
+    self:syncLegacyPlayback()
 end
 
 function FuneBridge:togglePlayback()
@@ -228,6 +258,7 @@ end
 
 function FuneBridge:update(dt)
     if not self.runtime then return {} end
+    self:syncLegacyNavigation()
     self:syncLegacyPlayback()
 
     if dt == nil then
@@ -239,6 +270,12 @@ function FuneBridge:update(dt)
 
     local events = self.runtime:update(dt)
     self.lastEvents = events or {}
+
+    if self:isActive() and Music then
+        if self.runtime.mode_name then Music.mode = self.runtime:mode_name() end
+        if self.runtime.position_value then Music.currentPosition = self.runtime:position_value() end
+        if mast then mast.isPlaying = self.runtime:is_playing() end
+    end
     return self.lastEvents
 end
 
@@ -247,8 +284,9 @@ function FuneBridge:receiveMidi(data)
     local events, actions = self.runtime:receive_midi(data)
     self.lastEvents = events or {}
     self.lastActions = actions or {}
-    if self:isActive() and mast then
-        mast.isPlaying = self.runtime:is_playing()
+    if self:isActive() then
+        if mast then mast.isPlaying = self.runtime:is_playing() end
+        if Music and self.runtime.position_value then Music.currentPosition = self.runtime:position_value() end
     end
     return self.lastEvents, self.lastActions
 end
