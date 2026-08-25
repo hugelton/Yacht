@@ -45,3 +45,7 @@ luac.out
 # Playdate build outputs
 *.pdx
 Output.pdx/
+
+# Generated locally from the private Fune repository.
+# Do not commit this file from the public Yacht repository.
+Source/FuneCore.lua
