@@ -5,6 +5,7 @@ FuneBridge = {
     lastEvents = {},
     lastActions = {},
     error = nil,
+    menuItem = nil,
 }
 
 local function now()
@@ -12,6 +13,16 @@ local function now()
         return playdate.sound.getCurrentTime()
     end
     return 0
+end
+
+local function notify(message)
+    if Balloon and Balloon.open then
+        Balloon.open(message)
+    elseif console and console.log then
+        console.log(message)
+    elseif print then
+        print(message)
+    end
 end
 
 local NullSounds = {
@@ -108,6 +119,50 @@ function FuneBridge.disable()
     FuneBridge.lastTime = nil
     FuneBridge.lastEvents = {}
     FuneBridge.lastActions = {}
+end
+
+function FuneBridge.setMode(mode)
+    local normalized = string.lower(tostring(mode or "off"))
+    if normalized == "off" or normalized == "disabled" then
+        FuneBridge.disable()
+        notify("Fune Core: off")
+        return true
+    elseif normalized == "shadow" then
+        local ok, message = FuneBridge.enableShadow()
+        notify(ok and "Fune Core: shadow" or ("Fune Core: " .. tostring(message)))
+        return ok, message
+    elseif normalized == "active" then
+        local ok, message = FuneBridge.enableActive()
+        notify(ok and "Fune Core: active" or ("Fune Core: " .. tostring(message)))
+        return ok, message
+    end
+    return false, "Unknown Fune mode: " .. tostring(mode)
+end
+
+function FuneBridge.installMenu(menu)
+    if not FuneBridge.available() then return nil, "FuneCore is not loaded" end
+    if FuneBridge.menuItem then return FuneBridge.menuItem end
+    if not menu and playdate and playdate.getSystemMenu then
+        menu = playdate.getSystemMenu()
+    end
+    if not menu or not menu.addOptionsMenuItem then
+        return nil, "Playdate system menu is unavailable"
+    end
+
+    local item, errorMessage = menu:addOptionsMenuItem(
+        "Fune",
+        { "Off", "Shadow", "Active" },
+        "Off",
+        function(value)
+            local ok = FuneBridge.setMode(value)
+            if not ok and FuneBridge.menuItem and FuneBridge.menuItem.setValue then
+                FuneBridge.menuItem:setValue("Off")
+            end
+        end
+    )
+    if not item then return nil, errorMessage end
+    FuneBridge.menuItem = item
+    return item
 end
 
 function FuneBridge.play()
