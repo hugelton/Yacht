@@ -1,91 +1,90 @@
-# Fune Core integration experiment
+# Optional Fune Core integration
 
-This branch keeps the legacy `Music.lua` playback path intact while testing Fune Core beside it.
+Yacht can use the shared Fune Core as an optional playback kernel while keeping the normal public Yacht checkout fully buildable without Fune.
 
-## Goal
+## Default Yacht build
 
-Move Yacht's sequencing / transport behavior toward the shared Fune Core without rewriting Playdate-specific UI, crank input, datastore, or synthesis code.
+Yacht ships `Source/FuneBridge.lua` and a small compatibility wrapper around the existing `Music.flipState()` / `Music.Refresh()` entry points.
 
-```text
-Yacht UI / data
- mast / keel / boat
-        |
-    FuneBridge
-        |
- FunePlaydate runtime
-        |
- ScenePlayer / ClockDriver
-        |
- Yacht Sounds
-```
+It does **not** ship the private/generated `FuneCore.lua` bundle.
 
-## Install FuneCore.lua
+Without FuneCore:
 
-With the Fune and Yacht repositories checked out locally:
+- `FuneBridge:available()` is false.
+- no Fune system-menu item is installed.
+- Region/Song playback stays on the legacy Yacht Music path.
+- the project remains buildable as an ordinary public Yacht checkout.
+
+## Enable Fune Core locally
+
+Keep Fune and Yacht checked out next to each other, then run from the Fune repository:
 
 ```bash
-cd Fune
 python3 tools/install_yacht_bundle.py ../Yacht
 ```
 
-This builds Fune's single-file Playdate bundle and copies it to:
+The installer:
+
+1. builds Fune's single-file Playdate bundle;
+2. writes it to `Yacht/Source/FuneCore.lua`;
+3. inserts `import "FuneCore"` immediately before Yacht's committed `import "FuneBridge"` line.
+
+`Source/FuneCore.lua` is gitignored by Yacht and is never committed to this public repository.
+
+If Playdate SDK `pdc` is available:
+
+```bash
+python3 tools/install_yacht_bundle.py ../Yacht --build
+```
+
+This also runs:
+
+```bash
+pdc Source Output.pdx
+```
+
+To return the checkout to the public build-safe state:
+
+```bash
+python3 tools/install_yacht_bundle.py ../Yacht --uninstall
+```
+
+That removes the generated bundle and the local `import "FuneCore"` line.
+
+## Runtime boundary
 
 ```text
-Yacht/Source/FuneCore.lua
+Yacht UI / project data
+ mast / keel / boat / settings
+          |
+      FuneBridge
+          |
+     FunePlaydate
+          |
+ Transport / ScenePlayer
+          |
+     OutputRouter
+          |
+      Yacht Sounds
 ```
 
-The generated file exposes the global `FunePlaydate` table. It contains its own module loader and does not require Fune's source tree at Playdate runtime.
-
-## Minimal Yacht hook
-
-After `FuneCore.lua` exists, the experimental Yacht startup hook only needs to import the bundle and bridge after the normal Yacht modules are loaded:
-
-```lua
-import "FuneCore"
-import "FuneBridge"
-```
-
-After `Sounds.init()` the bridge can add one Playdate system-menu option:
-
-```lua
-FuneBridge:installMenu(playdate.getSystemMenu())
-```
-
-Playdate supports up to three custom System Menu items; Yacht currently uses Load and Save, so this experiment deliberately consumes only the third slot.
-
-The runtime update hook is:
-
-```lua
-if FuneBridge:isEnabled() then
-    FuneBridge:update()
-end
-```
-
-Do not replace `Music.Refresh()` yet while testing Shadow mode.
+Yacht UI, crank/input handling, datastore and synthesis stay Playdate-specific. Fune owns portable Region/Scene/transport/playback behavior when Active.
 
 ## Rollout modes
 
+The Playdate system menu gains a `Fune` item only when the generated core is loaded.
+
 ### Off
 
-Legacy Yacht only. Fune runtime is not instantiated.
+Legacy Yacht playback only.
 
 ### Shadow
 
-Fune imports the current `mast / keel / boat / settings` and advances its own transport, but uses a null sound output. Legacy `Music.lua` remains the audible playback engine.
-
-Use this first to inspect:
-
-- transport tick progression
-- imported Scene position
-- quantized Scene transitions
-- loop boundaries
-- external MIDI Clock behavior
-
-without double-triggering audio.
+Legacy Yacht remains audible. Fune imports the same project and advances silently for comparison.
 
 ### Active
 
-Fune rebuilds the same imported project with the real Yacht `Sounds` adapter and sets legacy `Music.state = false` before takeover.
+Fune owns transport/playback and routes its events back into Yacht's existing `Sounds` implementation.
 
 Track mapping:
 
@@ -96,38 +95,32 @@ Fune track 3 -> Yacht Synth 3
 Fune track 4 -> Yacht Drums
 ```
 
-The importer preserves Yacht's original `0.25 / 0.5 / 0.75 / 1.0 / 1.5` second note lengths as event metadata, so the Playdate sound behavior can remain compatible even though Fune internally uses tick-based note lifecycle data.
+## Compatibility
 
-## Bridge API
+Fune's Yacht adapter supports both meanings of `Music.currentPosition`:
 
-```lua
-FuneBridge:enableShadow()
-FuneBridge:enableActive()
-FuneBridge:disable()
+- Region mode: direct Region number.
+- Song mode: arrangement position resolved through `keel`.
 
-FuneBridge:play()
-FuneBridge:start()
-FuneBridge:pause()
-FuneBridge:stop()
-FuneBridge:update()
+It also supports:
 
-FuneBridge:queueScene(2)
-FuneBridge:queueNextScene()
-FuneBridge:sceneId()
-FuneBridge:tick()
+- 96 PPQN internal transport;
+- Yacht 16-step UI position mapping;
+- Yacht BPM and 0-50% Swing live updates;
+- looping/non-looping songs;
+- Yacht note length metadata;
+- project Load detection;
+- stopped-state note/drum/arrangement edit refresh;
+- MIDI Start / Stop / Continue / Clock in the shared runtime.
 
-FuneBridge:receiveMidi(rawBytes)
+## Tests
+
+The public Yacht CI verifies both paths:
+
+```bash
+lua5.4 tests/music_smoke.lua          # no FuneCore, legacy path
+lua5.4 tests/funebridge_smoke.lua     # bridge API
+lua5.4 tests/music_fune_smoke.lua     # injected core takeover path
 ```
 
-`receiveMidi()` accepts raw realtime MIDI bytes and shares the Fune MIDI Start / Stop / Continue / Clock implementation used by Linux and macOS.
-
-## What is intentionally not changed yet
-
-- `Music.lua`
-- Play/Pause input routing
-- Project save format
-- PianoRoll / DrumPattern editing
-- `Sounds.lua`
-- main branch
-
-The first milestone is to prove the imported Fune runtime can run in Shadow and Active modes on the Playdate simulator without changing the editor or synthesis implementation.
+Fune's own CI separately verifies bundle generation, installer install/uninstall behavior, Yacht import/runtime behavior, Linux ALSA and macOS CoreMIDI adapters.
