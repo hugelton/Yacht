@@ -40,34 +40,34 @@ local function runtimeSounds(mode)
     return NullSounds
 end
 
-function FuneBridge.available()
+function FuneBridge:available()
     return type(FunePlaydate) == "table"
         and type(FunePlaydate.yacht_runtime) == "table"
         and type(FunePlaydate.yacht_runtime.new) == "function"
 end
 
-function FuneBridge.isEnabled()
-    return FuneBridge.mode ~= "disabled" and FuneBridge.runtime ~= nil
+function FuneBridge:isEnabled()
+    return self.mode ~= "disabled" and self.runtime ~= nil
 end
 
-function FuneBridge.isActive()
-    return FuneBridge.mode == "active" and FuneBridge.runtime ~= nil
+function FuneBridge:isActive()
+    return self.mode == "active" and self.runtime ~= nil
 end
 
-function FuneBridge.rebuild(mode)
-    mode = mode or FuneBridge.mode
+function FuneBridge:rebuild(mode)
+    mode = mode or self.mode
     if mode ~= "shadow" and mode ~= "active" then
-        FuneBridge.runtime = nil
-        FuneBridge.mode = "disabled"
-        FuneBridge.lastTime = nil
+        self.runtime = nil
+        self.mode = "disabled"
+        self.lastTime = nil
         return false, "FuneBridge is disabled"
     end
 
-    if not FuneBridge.available() then
-        FuneBridge.runtime = nil
-        FuneBridge.mode = "disabled"
-        FuneBridge.error = "FuneCore is not loaded"
-        return false, FuneBridge.error
+    if not self:available() then
+        self.runtime = nil
+        self.mode = "disabled"
+        self.error = "FuneCore is not loaded"
+        return false, self.error
     end
 
     local ok, result = pcall(function()
@@ -81,27 +81,27 @@ function FuneBridge.rebuild(mode)
     end)
 
     if not ok then
-        FuneBridge.runtime = nil
-        FuneBridge.mode = "disabled"
-        FuneBridge.error = tostring(result)
-        return false, FuneBridge.error
+        self.runtime = nil
+        self.mode = "disabled"
+        self.error = tostring(result)
+        return false, self.error
     end
 
-    FuneBridge.runtime = result
-    FuneBridge.mode = mode
-    FuneBridge.lastTime = now()
-    FuneBridge.lastEvents = {}
-    FuneBridge.lastActions = {}
-    FuneBridge.error = nil
+    self.runtime = result
+    self.mode = mode
+    self.lastTime = now()
+    self.lastEvents = {}
+    self.lastActions = {}
+    self.error = nil
     return true
 end
 
-function FuneBridge.enableShadow()
-    return FuneBridge.rebuild("shadow")
+function FuneBridge:enableShadow()
+    return self:rebuild("shadow")
 end
 
-function FuneBridge.enableActive()
-    local ok, message = FuneBridge.rebuild("active")
+function FuneBridge:enableActive()
+    local ok, message = self:rebuild("active")
     if not ok then return false, message end
 
     -- Avoid double-triggering notes when Fune takes over audio playback.
@@ -110,38 +110,38 @@ function FuneBridge.enableActive()
     return true
 end
 
-function FuneBridge.disable()
-    if FuneBridge.runtime and FuneBridge.runtime.stop then
-        FuneBridge.runtime:stop()
+function FuneBridge:disable()
+    if self.runtime and self.runtime.stop then
+        self.runtime:stop()
     end
-    FuneBridge.runtime = nil
-    FuneBridge.mode = "disabled"
-    FuneBridge.lastTime = nil
-    FuneBridge.lastEvents = {}
-    FuneBridge.lastActions = {}
+    self.runtime = nil
+    self.mode = "disabled"
+    self.lastTime = nil
+    self.lastEvents = {}
+    self.lastActions = {}
 end
 
-function FuneBridge.setMode(mode)
+function FuneBridge:setMode(mode)
     local normalized = string.lower(tostring(mode or "off"))
     if normalized == "off" or normalized == "disabled" then
-        FuneBridge.disable()
+        self:disable()
         notify("Fune Core: off")
         return true
     elseif normalized == "shadow" then
-        local ok, message = FuneBridge.enableShadow()
+        local ok, message = self:enableShadow()
         notify(ok and "Fune Core: shadow" or ("Fune Core: " .. tostring(message)))
         return ok, message
     elseif normalized == "active" then
-        local ok, message = FuneBridge.enableActive()
+        local ok, message = self:enableActive()
         notify(ok and "Fune Core: active" or ("Fune Core: " .. tostring(message)))
         return ok, message
     end
     return false, "Unknown Fune mode: " .. tostring(mode)
 end
 
-function FuneBridge.installMenu(menu)
-    if not FuneBridge.available() then return nil, "FuneCore is not loaded" end
-    if FuneBridge.menuItem then return FuneBridge.menuItem end
+function FuneBridge:installMenu(menu)
+    if not self:available() then return nil, "FuneCore is not loaded" end
+    if self.menuItem then return self.menuItem end
     if not menu and playdate and playdate.getSystemMenu then
         menu = playdate.getSystemMenu()
     end
@@ -154,93 +154,93 @@ function FuneBridge.installMenu(menu)
         { "Off", "Shadow", "Active" },
         "Off",
         function(value)
-            local ok = FuneBridge.setMode(value)
-            if not ok and FuneBridge.menuItem and FuneBridge.menuItem.setValue then
-                FuneBridge.menuItem:setValue("Off")
+            local ok = self:setMode(value)
+            if not ok and self.menuItem and self.menuItem.setValue then
+                self.menuItem:setValue("Off")
             end
         end
     )
     if not item then return nil, errorMessage end
-    FuneBridge.menuItem = item
+    self.menuItem = item
     return item
 end
 
-function FuneBridge.play()
-    if not FuneBridge.runtime then return false end
-    FuneBridge.lastTime = now()
-    FuneBridge.runtime:play()
-    if FuneBridge.isActive() and mast then mast.isPlaying = true end
+function FuneBridge:play()
+    if not self.runtime then return false end
+    self.lastTime = now()
+    self.runtime:play()
+    if self:isActive() and mast then mast.isPlaying = true end
     return true
 end
 
-function FuneBridge.start()
-    if not FuneBridge.runtime then return false end
-    FuneBridge.lastTime = now()
-    FuneBridge.runtime:start()
-    if FuneBridge.isActive() and mast then mast.isPlaying = true end
+function FuneBridge:start()
+    if not self.runtime then return false end
+    self.lastTime = now()
+    self.runtime:start()
+    if self:isActive() and mast then mast.isPlaying = true end
     return true
 end
 
-function FuneBridge.pause()
-    if not FuneBridge.runtime then return false end
-    FuneBridge.runtime:pause()
-    FuneBridge.lastTime = now()
-    if FuneBridge.isActive() and mast then mast.isPlaying = false end
+function FuneBridge:pause()
+    if not self.runtime then return false end
+    self.runtime:pause()
+    self.lastTime = now()
+    if self:isActive() and mast then mast.isPlaying = false end
     return true
 end
 
-function FuneBridge.stop()
-    if not FuneBridge.runtime then return false end
-    FuneBridge.runtime:stop()
-    FuneBridge.lastTime = now()
-    if FuneBridge.isActive() and mast then mast.isPlaying = false end
+function FuneBridge:stop()
+    if not self.runtime then return false end
+    self.runtime:stop()
+    self.lastTime = now()
+    if self:isActive() and mast then mast.isPlaying = false end
     return true
 end
 
-function FuneBridge.update(dt)
-    if not FuneBridge.runtime then return {} end
+function FuneBridge:update(dt)
+    if not self.runtime then return {} end
 
     if dt == nil then
         local current = now()
-        local previous = FuneBridge.lastTime or current
+        local previous = self.lastTime or current
         dt = math.max(0, current - previous)
-        FuneBridge.lastTime = current
+        self.lastTime = current
     end
 
-    local events = FuneBridge.runtime:update(dt)
-    FuneBridge.lastEvents = events or {}
-    return FuneBridge.lastEvents
+    local events = self.runtime:update(dt)
+    self.lastEvents = events or {}
+    return self.lastEvents
 end
 
-function FuneBridge.receiveMidi(data)
-    if not FuneBridge.runtime then return {}, {} end
-    local events, actions = FuneBridge.runtime:receive_midi(data)
-    FuneBridge.lastEvents = events or {}
-    FuneBridge.lastActions = actions or {}
-    if FuneBridge.isActive() and mast then
-        mast.isPlaying = FuneBridge.runtime:is_playing()
+function FuneBridge:receiveMidi(data)
+    if not self.runtime then return {}, {} end
+    local events, actions = self.runtime:receive_midi(data)
+    self.lastEvents = events or {}
+    self.lastActions = actions or {}
+    if self:isActive() and mast then
+        mast.isPlaying = self.runtime:is_playing()
     end
-    return FuneBridge.lastEvents, FuneBridge.lastActions
+    return self.lastEvents, self.lastActions
 end
 
-function FuneBridge.queueScene(scene, quantize)
-    if not FuneBridge.runtime then return nil end
-    return FuneBridge.runtime:queue_scene(scene, quantize)
+function FuneBridge:queueScene(scene, quantize)
+    if not self.runtime then return nil end
+    return self.runtime:queue_scene(scene, quantize)
 end
 
-function FuneBridge.queueNextScene()
-    if not FuneBridge.runtime then return nil end
-    return FuneBridge.runtime:queue_next_scene()
+function FuneBridge:queueNextScene()
+    if not self.runtime then return nil end
+    return self.runtime:queue_next_scene()
 end
 
-function FuneBridge.sceneId()
-    if not FuneBridge.runtime then return nil end
-    return FuneBridge.runtime:scene_id()
+function FuneBridge:sceneId()
+    if not self.runtime then return nil end
+    return self.runtime:scene_id()
 end
 
-function FuneBridge.tick()
-    if not FuneBridge.runtime then return 0 end
-    return FuneBridge.runtime:tick()
+function FuneBridge:tick()
+    if not self.runtime then return 0 end
+    return self.runtime:tick()
 end
 
 return FuneBridge
