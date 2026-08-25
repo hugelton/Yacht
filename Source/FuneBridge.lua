@@ -67,17 +67,21 @@ end
 function FuneBridge:rebuild(mode)
     mode = mode or self.mode
     if mode ~= "shadow" and mode ~= "active" then
-        self.runtime = nil
-        self.mode = "disabled"
-        self.lastTime = nil
+        self:disable()
         return false, "FuneBridge is disabled"
     end
 
     if not self:available() then
-        self.runtime = nil
-        self.mode = "disabled"
+        self:disable()
         self.error = "FuneCore is not loaded"
         return false, self.error
+    end
+
+    -- Tear down the previous runtime before changing routing modes. This is
+    -- especially important for Active -> Shadow/Active transitions because
+    -- Yacht instruments may still have notes sounding.
+    if self.runtime and self.runtime.stop then
+        self.runtime:stop()
     end
 
     local ok, result = pcall(function()
@@ -95,6 +99,7 @@ function FuneBridge:rebuild(mode)
     if not ok then
         self.runtime = nil
         self.mode = "disabled"
+        self.lastTime = nil
         self.error = tostring(result)
         return false, self.error
     end
@@ -121,6 +126,7 @@ function FuneBridge:enableActive()
     -- Avoid double-triggering notes when Fune takes over audio playback.
     if Music then Music.state = false end
     if mast then mast.isPlaying = false end
+    self:syncLegacyIndicators()
     return true
 end
 
@@ -133,6 +139,8 @@ function FuneBridge:disable()
     self.lastTime = nil
     self.lastEvents = {}
     self.lastActions = {}
+    if Music then Music.state = false end
+    if mast then mast.isPlaying = false end
 end
 
 function FuneBridge:setMode(mode)
@@ -235,9 +243,31 @@ function FuneBridge:syncLegacyPlayback()
     end
 end
 
+function FuneBridge:syncLegacyIndicators()
+    if not self:isActive() or not self.runtime or not Music then return end
+
+    if self.runtime.mode_name then Music.mode = self.runtime:mode_name() end
+    if self.runtime.position_value then Music.currentPosition = self.runtime:position_value() end
+    if mast then mast.isPlaying = self.runtime:is_playing() end
+
+    -- Fune uses 96 PPQN internally while Yacht's GlobalBar shows a 1..16
+    -- step cursor. Convert the absolute Fune transport tick back to Yacht's
+    -- current step without changing the Fune transport itself.
+    local ppqn = tonumber(self.runtime.project and self.runtime.project.ppqn) or 96
+    local beats = math.max(1, tonumber(mast and mast.measure) or 4)
+    local steps = math.max(1, tonumber(mast and mast.steps) or 16)
+    local barTicks = ppqn * beats
+    local stepTicks = barTicks / steps
+    local tick = tonumber(self.runtime:tick()) or 0
+    Music.tick = (math.floor((tick % barTicks) / stepTicks) % steps) + 1
+
+    if Music.updateCurrentBlocks then Music.updateCurrentBlocks() end
+end
+
 function FuneBridge:syncLegacyState()
     self:syncLegacyNavigation()
     self:syncLegacyPlayback()
+    self:syncLegacyIndicators()
 end
 
 function FuneBridge:togglePlayback()
@@ -248,10 +278,13 @@ function FuneBridge:togglePlayback()
         return self:play()
     end
 
-    if Music and Music.flipState then
-        Music.flipState()
-        self:syncLegacyPlayback()
-        return true
+    if Music then
+        local legacyFlip = Music._legacyFlipState or Music.flipState
+        if legacyFlip then
+            legacyFlip()
+            self:syncLegacyPlayback()
+            return true
+        end
     end
     return false
 end
@@ -270,12 +303,7 @@ function FuneBridge:update(dt)
 
     local events = self.runtime:update(dt)
     self.lastEvents = events or {}
-
-    if self:isActive() and Music then
-        if self.runtime.mode_name then Music.mode = self.runtime:mode_name() end
-        if self.runtime.position_value then Music.currentPosition = self.runtime:position_value() end
-        if mast then mast.isPlaying = self.runtime:is_playing() end
-    end
+    self:syncLegacyIndicators()
     return self.lastEvents
 end
 
@@ -284,10 +312,7 @@ function FuneBridge:receiveMidi(data)
     local events, actions = self.runtime:receive_midi(data)
     self.lastEvents = events or {}
     self.lastActions = actions or {}
-    if self:isActive() then
-        if mast then mast.isPlaying = self.runtime:is_playing() end
-        if Music and self.runtime.position_value then Music.currentPosition = self.runtime:position_value() end
-    end
+    self:syncLegacyIndicators()
     return self.lastEvents, self.lastActions
 end
 
