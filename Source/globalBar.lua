@@ -20,7 +20,7 @@ GlobalBar.buttons = {
         x = 283,
         getValue = function()
             if Music.mode == "region" then
-                return Music.currentPositionP
+                return Music.currentPosition
             else
                 return Music.currentPosition
             end
@@ -29,11 +29,8 @@ GlobalBar.buttons = {
     {
         label = "solo",
         w = 24,
-        x = 318
-        ,
-        getValue = function()
-
-        end
+        x = 318,
+        getValue = function() return Sounds.hasSolo() end
     },
     { label = "Switcher", w = 40, x = 350, getValue = function() return "Switcher" end },
 }
@@ -81,8 +78,6 @@ function GlobalBar.handleInput()
             Music.flipState()
         elseif selectedButton.label == "Mode" then
             Music.flipMode()
-        elseif selectedButton.label == "Loop" then
-            Music.songLoop = not Music.songLoop
         elseif selectedButton.label == "Switcher" then
             console.log("Switch.")
             PageSwitcher.open()
@@ -123,7 +118,7 @@ function GlobalBar.handleInput()
 
 
             if currentPage == "PianoRoll" then
-
+                currentPage = "Preferences"
             elseif currentPage == "DrumPattern" then
                 currentPage = "PianoRoll"
             elseif currentPage == "SynthEdit" then
@@ -156,7 +151,7 @@ function GlobalBar.handleInput()
             elseif currentPage == "Visualizer" then
                 currentPage = "Preferences"
             elseif currentPage == "Preferences" then
-
+                currentPage = "PianoRoll"
             end
         end
     end

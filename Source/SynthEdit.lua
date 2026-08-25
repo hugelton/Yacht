@@ -163,11 +163,108 @@ function SynthEdit.RadioSet:allOff()
     self.checked2 = false
 end
 
-SynthEdit.parameters = {
-    -- OSCILLATOR
+-- Mode selector: three stacked buttons drawn in the background art at the far
+-- left of the page. Order matches the icons (waveform / wavetable / sample).
+SynthEdit.modes = { "osc", "wavetable", "sample" }
+SynthEdit.modeLabels = { osc = "Osc", wavetable = "Wave", sample = "Smpl" }
+
+SynthEdit.ModeSelect = {}
+SynthEdit.ModeSelect.__index = SynthEdit.ModeSelect
+
+function SynthEdit.ModeSelect.new(x, y)
+    local self = setmetatable({}, SynthEdit.ModeSelect)
+    self.x, self.y = x, y
+    self.buttonSize = 17
+    self.spacing = 19
+    self.width, self.height = 17, 55
+    self.cursorWidth, self.cursorHeight = 21, 63
+    self.faderType = "modeselect"
+    return self
+end
+
+function SynthEdit.ModeSelect:currentIndex()
+    local mode = sail["synth" .. SynthEdit.targetNum].mode or "osc"
+    for index, name in ipairs(SynthEdit.modes) do
+        if name == mode then return index end
+    end
+    return 1
+end
+
+function SynthEdit.ModeSelect:draw()
+    -- The boxes and icons come from the background image; XOR-filling the
+    -- active one reads as "selected" without hiding the icon.
+    local index = self:currentIndex()
+    gfx.setColor(gfx.kColorXOR)
+    gfx.fillRect(self.x, self.y + (index - 1) * self.spacing, self.buttonSize, self.buttonSize)
+    gfx.setColor(gfx.kColorBlack)
+end
+
+function SynthEdit.ModeSelect:cycle(delta)
+    local index = self:currentIndex() + delta
+    if index < 1 then index = #SynthEdit.modes end
+    if index > #SynthEdit.modes then index = 1 end
+
+    local mode = SynthEdit.modes[index]
+    if not Sounds.setSynthMode(SynthEdit.targetNum, mode) then
+        Balloon.open("Sample unavailable; using oscillator")
+    end
+    -- The oscillator panel is a different set of controls in each mode.
+    SynthEdit.buildComponents()
+end
+
+-- Push button used for the sample slot and the recorder. The background art
+-- has no boxes here, so the widget draws its own.
+SynthEdit.Button = {}
+SynthEdit.Button.__index = SynthEdit.Button
+
+function SynthEdit.Button.new(x, y, width, height, kind)
+    local self = setmetatable({}, SynthEdit.Button)
+    self.x, self.y = x, y
+    self.width, self.height = width, height
+    self.cursorWidth, self.cursorHeight = width + 4, height + 6
+    self.faderType = kind
+    return self
+end
+
+function SynthEdit.Button:draw()
+    gfx.setColor(gfx.kColorWhite)
+    gfx.fillRect(self.x, self.y, self.width, self.height)
+    gfx.setColor(gfx.kColorBlack)
+    gfx.drawRoundRect(self.x, self.y, self.width, self.height, 2)
+
+    if self.faderType == "samplebutton" then
+        local synth = sail["synth" .. SynthEdit.targetNum]
+        local name = synth.loadSample or "- none -"
+        -- Trailing "!" means the sample would not load and the voice fell
+        -- back to a plain oscillator.
+        if Sounds.getSynthMode(SynthEdit.targetNum) ~= synth.mode then name = name .. "!" end
+        assets.fonts.nada:drawTextAligned(name, self.x + self.width / 2,
+            self.y + (self.height - 12) / 2, kTextAlignment.center)
+    elseif Recorder.isRecording then
+        Recorder.drawMeter(self.x, self.y, self.width, self.height)
+    else
+        assets.fonts.nada:drawTextAligned("REC", self.x + self.width / 2,
+            self.y + (self.height - 12) / 2, kTextAlignment.center)
+    end
+end
+
+-- The oscillator panel is rebuilt per mode: a plain synth needs a waveform and
+-- two parameters, a sampler needs a slot, a recorder and tune / length.
+SynthEdit.oscBlock = {
     { x = 15 + 22, y = 95, label = "Form", type = "int", knob = 2, min = 0, max = 7, steps = 8, target = "synth[now].oscillator.form", faderType = "horizontal" },
     { x = 66 + 22, y = 65, label = "①", type = "float", knob = 2, min = 0, max = 1, steps = 11, target = "synth[now].oscillator.param1", faderType = "vertical" },
     { x = 88 + 22, y = 65, label = "②", type = "float", knob = 2, min = 0, max = 1, steps = 11, target = "synth[now].oscillator.param2", faderType = "vertical" },
+}
+
+SynthEdit.samplerBlock = {
+    { x = 38, y = 64, label = "Sample", faderType = "samplebutton", width = 40, height = 18 },
+    { x = 37, y = 95, label = "Rec", faderType = "recbutton", width = 35, height = 20 },
+    -- ① scans the wavetable, or sets playback length for a plain sample.
+    { x = 66 + 22, y = 65, label = "Scan", type = "float", knob = 2, min = 0, max = 1, steps = 11, target = "synth[now].oscillator.param1", faderType = "vertical" },
+    { x = 88 + 22, y = 65, label = "Tune", type = "float", knob = 2, min = 0, max = 1, steps = 11, target = "synth[now].sampler.tune", faderType = "vertical" },
+}
+
+SynthEdit.commonParameters = {
     -- FILTER
     { x = 118 + 22, y = 95, label = "Type", type = "int", knob = 2, min = 0, max = 6, steps = 7, target = "synth[now].filter.type", faderType = "horizontal" },
     { x = 162 + 22, y = 65, label = "Cut.", type = "float", knob = 2, min = 0, max = 1, steps = 11, target = "synth[now].filter.cutoff", faderType = "vertical" },
@@ -203,6 +300,53 @@ SynthEdit.parameters = {
 
 
 }
+
+-- Number of cursor stops in the upper half of the page, used by the up/down
+-- row jump. It shifts when the sampler panel is showing.
+SynthEdit.topRowCount = 12
+
+-- Projects saved before the sampler existed have no sampler table; without
+-- defaults the tune fader would read 0 and transpose everything down.
+function SynthEdit.ensureSampler()
+    for i = 1, 3 do
+        local synth = sail["synth" .. i]
+        if synth then
+            if type(synth.sampler) ~= "table" then synth.sampler = {} end
+            if type(synth.sampler.tune) ~= "number" then synth.sampler.tune = 0.5 end
+            if type(synth.sampler.length) ~= "number" then synth.sampler.length = 1.0 end
+        end
+    end
+end
+
+function SynthEdit.currentMode()
+    local synth = sail["synth" .. SynthEdit.targetNum]
+    return synth and synth.mode or "osc"
+end
+
+function SynthEdit.parametersFor(mode)
+    local list = { { x = 12, y = 64, label = "Mode", faderType = "modeselect" } }
+
+    local block = (mode == "osc") and SynthEdit.oscBlock or SynthEdit.samplerBlock
+    for _, param in ipairs(block) do
+        local entry = param
+        -- A wavetable scans with ①; a plain sample uses it for length instead.
+        if mode == "sample" and param.target == "synth[now].oscillator.param1" then
+            entry = {}
+            for key, value in pairs(param) do entry[key] = value end
+            entry.label = "Len"
+            entry.target = "synth[now].sampler.length"
+        end
+        list[#list + 1] = entry
+    end
+
+    -- Mode + oscillator/sampler block + filter (3) + amp (5).
+    SynthEdit.topRowCount = #list + 8
+
+    for _, param in ipairs(SynthEdit.commonParameters) do
+        list[#list + 1] = param
+    end
+    return list
+end
 
 
 
@@ -241,6 +385,12 @@ local function drawOscWaveform()
     gfx.pushContext()
     gfx.setLineWidth(1)
     gfx.setColor(gfx.kColorBlack)
+
+    -- The sampler panel replaces the scope entirely with its own controls.
+    if (sail["synth" .. synthIndex].mode or "osc") ~= "osc" then
+        gfx.popContext()
+        return
+    end
 
     -- PO波形の場合はテキスト表示
     if currentForm >= playdate.sound.kWavePOPhase then
@@ -381,53 +531,65 @@ function SynthEdit.toggleFilterAnimation()
     shouldAnimateFilter = not shouldAnimateFilter
 end
 
+-- Builds every cursor stop for the current synth and mode. Called on init, on
+-- project load, and whenever the mode or selected synth changes.
+function SynthEdit.buildComponents()
+    SynthEdit.ensureSampler()
+    SynthEdit.uiComponents = {}
+    SynthEdit.cursorMap = {}
+
+    for _, param in ipairs(SynthEdit.parametersFor(SynthEdit.currentMode())) do
+        local component
+        if param.faderType == "modeselect" then
+            component = SynthEdit.ModeSelect.new(param.x, param.y)
+        elseif param.faderType == "samplebutton" or param.faderType == "recbutton" then
+            component = SynthEdit.Button.new(param.x, param.y, param.width, param.height,
+                param.faderType)
+        elseif param.faderType == "radioset" then
+            component = SynthEdit.RadioSet.new(param.x, param.y, param.label, param.target1,
+                param.target2)
+            component.checked1 = param.target1 and SynthEdit.getInitialValue(param.target1) == 1
+            component.checked2 = param.target2 and SynthEdit.getInitialValue(param.target2) == 1
+        elseif param.faderType == "horizontal" then
+            local initialValue = SynthEdit.getInitialValue(param.target)
+            component = SynthEdit.HFader.new(param.x, param.y, param.label, initialValue,
+                param.min, param.max, param.steps, param.target, param.type)
+            component.handlePosition = component:valueToPosition(initialValue)
+        elseif param.faderType == "checkbox" then
+            component = SynthEdit.CheckBox.new(param.x, param.y, param.label, param.target)
+            component.checked = SynthEdit.getInitialValue(param.target) == 1
+        elseif param.faderType == "vertical" then
+            local initialValue = SynthEdit.getInitialValue(param.target)
+            component = SynthEdit.VFader.new(param.x, param.y, param.label, initialValue,
+                param.min, param.max, param.steps, param.target, param.type, param.knob)
+            component.handlePosition = component:valueToPosition(initialValue)
+        end
+
+        if component then
+            component.label = component.label or param.label
+            table.insert(SynthEdit.uiComponents, component)
+            table.insert(SynthEdit.cursorMap, {
+                x = param.x - 2,
+                y = param.y - 5,
+                w = component.cursorWidth,
+                h = component.cursorHeight
+            })
+        end
+    end
+
+    SynthEdit.currentCursorIndex =
+        math.max(1, math.min(SynthEdit.currentCursorIndex, #SynthEdit.cursorMap))
+    if #SynthEdit.cursorMap > 0 then
+        local box = SynthEdit.cursorMap[SynthEdit.currentCursorIndex]
+        SynthEdit.cursor = { x = box.x, y = box.y, w = box.w, h = box.h }
+    end
+end
+
 function SynthEdit.init()
     console.log("SynthEditの初期化を始めます")
     initializeTables()
-    for i, param in ipairs(SynthEdit.parameters) do
-        local component
-        if param.faderType == "radioset" then
-            component = SynthEdit.RadioSet.new(param.x, param.y, param.label, param.target1, param.target2)
-
-
-            if SynthEdit.getInitialValue(param.target1) == 1 then
-                component.checked1 = true
-            else
-                component.checked1 = false
-            end
-            if SynthEdit.getInitialValue(param.target2) == 1 then
-                component.checked2 = true
-            else
-                component.checked2 = false
-            end
-        elseif param.faderType == "horizontal" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.HFader.new(param.x, param.y, param.label, initialValue, param.min, param.max,
-                param.steps, param.target, param.type)
-            component.handlePosition = component:valueToPosition(initialValue)
-        elseif param.faderType == "checkbox" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.CheckBox.new(param.x, param.y, param.label, param.target)
-            component.checked = initialValue
-        elseif param.faderType == "vertical" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.VFader.new(param.x, param.y, param.label, initialValue, param.min, param.max,
-                param.steps, param.target, param.type, param.knob)
-            component.handlePosition = component:valueToPosition(initialValue)
-        end
-        table.insert(SynthEdit.uiComponents, component)
-        table.insert(SynthEdit.cursorMap,
-            { x = param.x - 2, y = param.y - 5, w = component.cursorWidth, h = component.cursorHeight })
-    end
-
-    if #SynthEdit.cursorMap > 0 then
-        SynthEdit.cursor = {
-            x = SynthEdit.cursorMap[1].x,
-            y = SynthEdit.cursorMap[1].y,
-            w = SynthEdit.cursorMap[1].w,
-            h = SynthEdit.cursorMap[1].h
-        }
-    end
+    SynthEdit.currentCursorIndex = 1
+    SynthEdit.buildComponents()
     console.log("SynthEditの初期化が完了しました")
 end
 
@@ -459,7 +621,30 @@ function SynthEdit.getInitialValue(target)
     end
 end
 
+-- "Form ① ②" is baked into the background art, so the sampler panel paints
+-- over that strip with its own captions.
+local function drawSamplerLabels()
+    gfx.setColor(gfx.kColorWhite)
+    gfx.fillRect(34, 116, 99, 12)
+    gfx.setColor(gfx.kColorBlack)
+
+    for _, component in ipairs(SynthEdit.uiComponents) do
+        if component.faderType == "recbutton" then
+            assets.fonts.nada:drawTextAligned(component.label,
+                component.x + component.width / 2, 117, kTextAlignment.center)
+        elseif component.targetPath and component.x >= 80 and component.y < 90 then
+            -- The two vertical faders of the oscillator panel.
+            assets.fonts.nada:drawTextAligned(component.label,
+                component.x + 10, 117, kTextAlignment.center)
+        end
+    end
+end
+
 function SynthEdit.draw()
+    if SynthEdit.currentMode() ~= "osc" then
+        drawSamplerLabels()
+    end
+
     for _, component in ipairs(SynthEdit.uiComponents) do
         component:draw()
     end
@@ -469,12 +654,47 @@ function SynthEdit.draw()
     assets.synSelect:drawImage(SynthEdit.targetNum, 362, 38)
 end
 
+-- A starts the take and stops it again; the buffer also ends it on its own.
+function SynthEdit.toggleRecording()
+    if Recorder.isRecording then
+        Recorder.stop()
+        return
+    end
+
+    local synthIndex = SynthEdit.targetNum
+    local started = Recorder.start(function(name)
+        if not name then
+            Balloon.open("Recording failed")
+            return
+        end
+        if Sounds.setSynthSample(synthIndex, name) then
+            Balloon.open("Recorded " .. name)
+        else
+            Balloon.open("Could not load " .. name)
+        end
+    end)
+
+    if not started then
+        Balloon.open("Microphone unavailable")
+    end
+end
+
+function SynthEdit.openSampleSelector()
+    local synthIndex = SynthEdit.targetNum
+    local params = sail["synth" .. synthIndex]
+    SampleSelector.open("Synth " .. synthIndex .. " Sample", params.loadSample, function(name)
+        return Sounds.setSynthSample(synthIndex, name)
+    end)
+end
+
 function SynthEdit.switchSynth(dir)
     if dir == 1 then
         SynthEdit.targetNum = math.min(3, SynthEdit.targetNum + 1)
     elseif dir == 0 then
         SynthEdit.targetNum = math.max(1, SynthEdit.targetNum - 1)
     end
+    -- Each synth has its own mode, so the panel and every value must reload.
+    SynthEdit.buildComponents()
 end
 
 function SynthEdit.updateSail(target, value)
@@ -511,58 +731,7 @@ end
 function SynthEdit.load()
     SynthEdit.targetNum = 1
     SynthEdit.currentCursorIndex = 1
-
-
-    SynthEdit.uiComponents = {}
-    SynthEdit.cursorMap = {}
-
-
-    for i, param in ipairs(SynthEdit.parameters) do
-        local component
-        if param.faderType == "radioset" then
-            component = SynthEdit.RadioSet.new(param.x, param.y, param.label, param.target1, param.target2)
-
-            if param.target1 then
-                component.checked1 = SynthEdit.getInitialValue(param.target1) == 1
-            end
-            if param.target2 then
-                component.checked2 = SynthEdit.getInitialValue(param.target2) == 1
-            end
-        elseif param.faderType == "horizontal" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.HFader.new(param.x, param.y, param.label, initialValue,
-                param.min, param.max, param.steps, param.target, param.type)
-        elseif param.faderType == "checkbox" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.CheckBox.new(param.x, param.y, param.label, param.target)
-            component.checked = initialValue == 1
-        elseif param.faderType == "vertical" then
-            local initialValue = SynthEdit.getInitialValue(param.target)
-            component = SynthEdit.VFader.new(param.x, param.y, param.label, initialValue,
-                param.min, param.max, param.steps, param.target, param.type, param.knob)
-        end
-
-        if component then
-            table.insert(SynthEdit.uiComponents, component)
-            table.insert(SynthEdit.cursorMap, {
-                x = param.x - 2,
-                y = param.y - 5,
-                w = component.cursorWidth,
-                h = component.cursorHeight
-            })
-        end
-    end
-
-
-    if #SynthEdit.cursorMap > 0 then
-        SynthEdit.cursor = {
-            x = SynthEdit.cursorMap[1].x,
-            y = SynthEdit.cursorMap[1].y,
-            w = SynthEdit.cursorMap[1].w,
-            h = SynthEdit.cursorMap[1].h
-        }
-    end
-
+    SynthEdit.buildComponents()
 
     for i = 1, 3 do
         Sounds.updateSynthParameters(i, sail["synth" .. i])
@@ -579,7 +748,8 @@ end
 
 function SynthEdit.handleInput()
     local oldIndex = SynthEdit.currentCursorIndex
-    local rowCount = 12
+    -- The sampler panel has one more stop than the oscillator panel.
+    local rowCount = SynthEdit.topRowCount
 
 
     if KeyManager.justReleased(KeyManager.keys.left) then
@@ -611,6 +781,27 @@ function SynthEdit.handleInput()
 
     local component = SynthEdit.uiComponents[SynthEdit.currentCursorIndex]
     if not component then return end
+
+    if component.faderType == "modeselect" then
+        if KeyManager.justComboReleased("upA") or CrankManager.backwardTick then
+            component:cycle(-1)
+        elseif KeyManager.justComboReleased("downA") or CrankManager.forwardTick then
+            component:cycle(1)
+        elseif KeyManager.justReleased(KeyManager.keys.a) then
+            SynthEdit.openSampleSelector()
+        end
+        return
+    elseif component.faderType == "samplebutton" then
+        if KeyManager.justReleased(KeyManager.keys.a) then
+            SynthEdit.openSampleSelector()
+        end
+        return
+    elseif component.faderType == "recbutton" then
+        if KeyManager.justReleased(KeyManager.keys.a) then
+            SynthEdit.toggleRecording()
+        end
+        return
+    end
 
     local isHorizontal = component.width and component.width > component.height
     local isCheckbox = component.faderType == "checkbox"

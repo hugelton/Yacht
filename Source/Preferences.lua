@@ -159,17 +159,20 @@ end
 Preferences.NumberInput = {}
 Preferences.NumberInput.__index = Preferences.NumberInput
 
-function Preferences.NumberInput.new(x, y, label, value, minValue, maxValue, target)
+function Preferences.NumberInput.new(x, y, label, value, minValue, maxValue, target, options)
     local self = setmetatable({}, Preferences.NumberInput)
+    options = options or {}
     self.x, self.y = x, y
     self.label = label
     self.value = value
     self.minValue, self.maxValue = minValue, maxValue
     self.target = target
 
-    self.width = 20
+    self.width = options.width or 20
     self.height = 20
-    self.labelWidth = 80
+    self.labelWidth = options.labelWidth or 80
+    -- Coarse step for A + left/right; MIDI notes jump by an octave.
+    self.coarseStep = options.coarseStep or 1
 
     return self
 end
@@ -181,18 +184,27 @@ function Preferences.NumberInput:draw()
     gfx.drawTextAligned(tostring(self.value), startX + self.width / 2, self.y + 2, kTextAlignment.center)
 end
 
+function Preferences.NumberInput:nudge(delta)
+    self.value = math.max(self.minValue, math.min(self.maxValue, self.value + delta))
+end
+
 function Preferences.NumberInput:handleInput()
-    console.log("NumberInput target:", self.target)
-    if KeyManager.justReleased(KeyManager.keys.left) then
-        self.value = math.max(self.minValue, self.value - 1)
-    elseif KeyManager.justReleased(KeyManager.keys.right) then
-        self.value = math.min(self.maxValue, self.value + 1)
-    end
-    if self.target then
-        Preferences.updateSettings(self.target, self.value)
-    else
+    if not self.target then
         console.log("Error: target is nil for NumberInput")
+        return
     end
+
+    if KeyManager.justComboPressed("leftA") then
+        self:nudge(-self.coarseStep)
+    elseif KeyManager.justComboPressed("rightA") then
+        self:nudge(self.coarseStep)
+    elseif KeyManager.justReleased(KeyManager.keys.left) or CrankManager.backwardTick then
+        self:nudge(-1)
+    elseif KeyManager.justReleased(KeyManager.keys.right) or CrankManager.forwardTick then
+        self:nudge(1)
+    end
+
+    Preferences.updateSettings(self.target, self.value)
 end
 
 Preferences.uiComponents = {}
@@ -201,24 +213,30 @@ Preferences.cursor = { x = 0, y = 0, w = 0, h = 0 }
 Preferences.currentCursorIndex = 1
 
 
+-- Note inputs share a narrower label column so three fit across the panel.
+local noteInput = { labelWidth = 55, width = 30, coarseStep = 12 }
+
 Preferences.parameters = {
-    -- { x = 20, y = 50, label = "Cursor Blink", type = "float",    min = 0.1,                            max = 2,                    steps = 20,            target = "cursorBlinkSpeed", faderType = "horizontal" },
-    -- { x = 20,  y = 80,  label = "MIDI Enabled",  type = "checkbox", target = "midiEnabled",               faderType = "checkbox" },
-    -- { x = 20,  y = 110, label = "Syn1 MIDI Ch",  type = "number",   min = 1,                              max = 16,                   target = "midiChannels.syn1",         faderType = "number" },
-    -- { x = 20,  y = 140, label = "Syn2 MIDI Ch",  type = "number",   min = 1,                              max = 16,                   target = "midiChannels.syn2",         faderType = "number" },
-    -- { x = 20,  y = 170, label = "Syn3 MIDI Ch",  type = "number",   min = 1,                              max = 16,                   target = "midiChannels.syn3",         faderType = "number" },
-    -- { x = 20,  y = 200, label = "Drums MIDI Ch", type = "number",   min = 1,                              max = 16,                   target = "midiChannels.drums",        faderType = "number" },
-    -- { x = 20,  y = 230, label = "Kick Note",     type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.kick",        faderType = "number" },
-    -- { x = 20,  y = 260, label = "Snare Note",    type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.snare",       faderType = "number" },
-    -- { x = 20,  y = 290, label = "Closed HH",     type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.closedHiHat", faderType = "number" },
-    -- { x = 20,  y = 320, label = "Open HH",       type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.openHiHat",   faderType = "number" },
-    -- { x = 20,  y = 350, label = "Perc1 Note",    type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.percussion1", faderType = "number" },
-    -- { x = 20,  y = 380, label = "Perc2 Note",    type = "number",   min = 0,                              max = 127,                  target = "drumMidiNotes.percussion2", faderType = "number" },
-    { x = 20, y = 50, label = "MIDI Clock", type = "dropdown", options = { "Internal", "External" }, target = "midiClockSource", faderType = "dropdown" },
-    -- { x = 200, y = 410, label = "Clock Out",     type = "checkbox", target = "midiClockOutput",           faderType = "checkbox" },
+    { x = 20,  y = 42,  label = "USB MIDI", type = "checkbox", target = "midiEnabled", faderType = "checkbox" },
+    { x = 170, y = 42,  label = "Clock", type = "dropdown", options = { "Internal", "External" }, target = "midiClockSource", faderType = "dropdown" },
+
+    { x = 20,  y = 70,  label = "Syn A Ch", type = "number", min = 1, max = 16, target = "midiChannels.syn1", faderType = "number", labelWidth = 70, width = 26 },
+    { x = 145, y = 70,  label = "Syn B Ch", type = "number", min = 1, max = 16, target = "midiChannels.syn2", faderType = "number", labelWidth = 70, width = 26 },
+    { x = 270, y = 70,  label = "Syn C Ch", type = "number", min = 1, max = 16, target = "midiChannels.syn3", faderType = "number", labelWidth = 70, width = 26 },
+    { x = 20,  y = 98,  label = "Drums Ch", type = "number", min = 1, max = 16, target = "midiChannels.drums", faderType = "number", labelWidth = 70, width = 26 },
+
+    { x = 20,  y = 146, label = "Kick", type = "number", min = 0, max = 127, target = "drumMidiNotes.kick", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
+    { x = 145, y = 146, label = "Snare", type = "number", min = 0, max = 127, target = "drumMidiNotes.snare", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
+    { x = 270, y = 146, label = "Close", type = "number", min = 0, max = 127, target = "drumMidiNotes.closedHiHat", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
+    { x = 20,  y = 172, label = "Open", type = "number", min = 0, max = 127, target = "drumMidiNotes.openHiHat", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
+    { x = 145, y = 172, label = "Perc1", type = "number", min = 0, max = 127, target = "drumMidiNotes.percussion1", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
+    { x = 270, y = 172, label = "Perc2", type = "number", min = 0, max = 127, target = "drumMidiNotes.percussion2", faderType = "number", labelWidth = noteInput.labelWidth, width = noteInput.width, coarseStep = noteInput.coarseStep },
 }
 function Preferences.init()
     console.log("Initializing Preferences")
+    Preferences.uiComponents = {}
+    Preferences.cursorMap = {}
+    Preferences.currentCursorIndex = 1
     for i, param in ipairs(Preferences.parameters) do
         local component
         local initialValue = Preferences.getInitialValue(param.target)
@@ -230,14 +248,18 @@ function Preferences.init()
             component.checked = initialValue
         elseif param.faderType == "number" then
             component = Preferences.NumberInput.new(param.x, param.y, param.label, initialValue, param.min, param.max,
-                param.target) -- ここでparam.labelとparam.targetを渡すように修正
+                param.target, param)
         elseif param.faderType == "dropdown" then
             component = Preferences.Dropdown.new(param.x, param.y, param.label, param.options, initialValue, param
                 .target)
         end
         table.insert(Preferences.uiComponents, component)
+        local cursorWidth = component.width + 4
+        if param.faderType == "number" then
+            cursorWidth = component.labelWidth + component.width + 4
+        end
         table.insert(Preferences.cursorMap,
-            { x = param.x - 2, y = param.y - 5, w = component.width + 4, h = component.height + 10 })
+            { x = param.x - 2, y = param.y - 5, w = cursorWidth, h = component.height + 10 })
     end
 
     if #Preferences.cursorMap > 0 then
@@ -249,6 +271,10 @@ function Preferences.init()
         }
     end
     console.log("Preferences initialization complete")
+end
+
+function Preferences.load()
+    Preferences.init()
 end
 
 function Preferences.getInitialValue(target)
@@ -269,14 +295,19 @@ function Preferences.getInitialValue(target)
 end
 
 function Preferences.draw()
-    gfx.drawText("*[!]  MIDI/OSC support is development now*", 20, 120)
+    assets.fonts.cavs:drawText("Drum note map", 20, 124)
+    assets.fonts.nada:drawTextAligned("A + left/right: octave", 380, 127, kTextAlignment.right)
 
     for _, component in ipairs(Preferences.uiComponents) do
         component:draw()
     end
+
+    assets.fonts.nada:drawText("note CH NOTE VELO [LEN] | drum NOTE VELO | start stop clock", 20, 196)
+    assets.fonts.nada:drawText(MIDI.getStatus(), 20, 211)
 end
 
 function Preferences.handleInput()
+    if #Preferences.uiComponents == 0 then return end
     local oldIndex = Preferences.currentCursorIndex
 
     if KeyManager.justReleased(KeyManager.keys.up) then
@@ -297,7 +328,6 @@ function Preferences.handleInput()
 end
 
 function Preferences.updateSettings(target, value)
-    console.log("Updating setting:", target, value) -- デバッグ用
     local parts = {}
     for part in target:gmatch("[^.]+") do
         table.insert(parts, part)
@@ -310,14 +340,21 @@ function Preferences.updateSettings(target, value)
         end
         current = current[parts[i]]
     end
-    current[parts[#parts]] = value
+
+    -- The focused component writes its value back every frame, so bail out
+    -- unless something actually moved: the clock side effect below starts
+    -- playback and must not fire just because the cursor is parked here.
+    local key = parts[#parts]
+    if current[key] == value then return end
+
+    current[key] = value
     console.log("Updated setting: " .. target .. " to " .. tostring(value))
 
-
-    if target == "midiEnabled" then
-        -- MIDIの有効/無効を切り替える処理
+    if target == "midiEnabled" and not value and settings.midiClockSource == "External" then
+        Music.syncClock()
     elseif target == "midiClockSource" then
-        -- MIDIクロックソースを切り替える処理
+        MIDI.clockPulses = 0
+        Music.syncClock()
     end
 end
 

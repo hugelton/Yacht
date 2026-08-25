@@ -48,15 +48,8 @@ function SongEdit.load()
     cursorX = 1
     cursorY = 1
     SongEdit.scrollOffset = 0
-    SongEdit.endType = "none"
-
-
-    if not keel.songEnd then
-
-    end
-
-
-    Music.setSongLoop(SongEdit.endType == "d.c.")
+    SongEdit.endType = keel.loop and "d.c." or "coda"
+    Music.setSongLoop(keel.loop == true)
 end
 
 function SongEdit.init()
@@ -65,82 +58,57 @@ function SongEdit.init()
     SongEdit.scrollOffset = 0
     Music.maxRegion = Music.maxRegion or 64
 
-
-    if not mast.song then
-        mast.song = {
-            length = {},
-            synth1 = {},
-            synth2 = {},
-            synth3 = {},
-            drums = {}
-        }
-        for i = 1, Music.maxRegion do
-            mast.song.length[i] = (i <= Music.maxRegion and 1 or 0)
-            mast.song.synth1[i] = 0
-            mast.song.synth2[i] = 0
-            mast.song.synth3[i] = 0
-            mast.song.drums[i] = 0
-        end
-    end
+    SongEdit.endType = keel.loop and "d.c." or "coda"
+    Music.setSongLoop(keel.loop == true)
 
     console.log("SongEdit initialization complete")
 end
 
+local function moveCursorRight()
+    if cursorX < 10 then
+        cursorX = cursorX + 1
+    elseif SongEdit.scrollOffset < SongEdit.songLength - 10 then
+        SongEdit.scrollOffset = SongEdit.scrollOffset + 1
+    end
+end
+
+local function moveCursorLeft()
+    if cursorX > 1 then
+        cursorX = cursorX - 1
+    elseif SongEdit.scrollOffset > 0 then
+        SongEdit.scrollOffset = SongEdit.scrollOffset - 1
+    end
+end
+
 function SongEdit.handleInput()
     if KeyManager.justReleased(KeyManager.keys.left) then
-        cursorX = math.max(1, cursorX - 1)
-        if cursorX == 1 and SongEdit.scrollOffset > 0 then
-            SongEdit.scrollOffset = SongEdit.scrollOffset - 1
-        end
+        moveCursorLeft()
     elseif KeyManager.justReleased(KeyManager.keys.right) then
-        if cursorX < 10 or (cursorX == 10 and SongEdit.scrollOffset < SongEdit.songLength - 10) then
-            cursorX = math.min(10, cursorX + 1)
-            if cursorX == 10 and SongEdit.scrollOffset < SongEdit.songLength - 10 then
-                SongEdit.scrollOffset = SongEdit.scrollOffset + 1
-            end
-        end
+        moveCursorRight()
     elseif KeyManager.justReleased(KeyManager.keys.up) then
         cursorY = math.max(1, cursorY - 1)
     elseif KeyManager.justReleased(KeyManager.keys.down) then
         cursorY = math.min(SongEdit.tracksCount, cursorY + 1)
     elseif KeyManager.justReleased(KeyManager.keys.a) then
-        local position = SongEdit.scrollOffset + cursorX
         if cursorY == 1 then
             SongEdit.toggleLength()
         else
-            local trackName = SongEdit.getTrackName(cursorY)
-            if keel[trackName][position] == 0 then
-                keel[trackName][position] = 1
-            else
-                keel[trackName][position] = 0
-            end
+            SongEdit.toggleRegion()
         end
     elseif KeyManager.justComboReleased("upA") then
-        if cursorY > 1 then
-            local trackName = SongEdit.getTrackName(cursorY)
-            local position = SongEdit.scrollOffset + cursorX
-            keel[trackName][position] = math.min(SongEdit.maxRegions, (keel[trackName][position] or 0) + 1)
-        end
+        SongEdit.incrementRegion()
     elseif KeyManager.justComboReleased("downA") then
-        if cursorY > 1 then
-            local trackName = SongEdit.getTrackName(cursorY)
-            local position = SongEdit.scrollOffset + cursorX
-            keel[trackName][position] = math.max(0, (keel[trackName][position] or 0) - 1)
-        end
+        SongEdit.decrementRegion()
+    elseif KeyManager.justComboReleased("leftA") then
+        if SongEdit.copyRegionLeft() then moveCursorLeft() end
+    elseif KeyManager.justComboReleased("rightA") then
+        if SongEdit.copyRegionRight() then moveCursorRight() end
     end
 
     if CrankManager.forwardTick then
-        if cursorX < 10 or (cursorX == 10 and SongEdit.scrollOffset < SongEdit.songLength - 10) then
-            cursorX = math.min(10, cursorX + 1)
-            if cursorX == 10 and SongEdit.scrollOffset < SongEdit.songLength - 10 then
-                SongEdit.scrollOffset = SongEdit.scrollOffset + 1
-            end
-        end
+        moveCursorRight()
     elseif CrankManager.backwardTick then
-        cursorX = math.max(1, cursorX - 1)
-        if cursorX == 1 and SongEdit.scrollOffset > 0 then
-            SongEdit.scrollOffset = SongEdit.scrollOffset - 1
-        end
+        moveCursorLeft()
     end
 
 
@@ -156,60 +124,68 @@ function SongEdit.toggleLength()
     if position == keel.songEnd then
         if SongEdit.endType == "none" then
             SongEdit.endType = "coda"
+            keel.loop = false
             Music.setSongLoop(false)
         elseif SongEdit.endType == "coda" then
             SongEdit.endType = "d.c."
+            keel.loop = true
             Music.setSongLoop(true)
         else -- "d.c."の場合
             -- codaとD.C.を解除し、songEndを短くする
             SongEdit.endType = "none"
             keel.songEnd = math.max(1, keel.songEnd - 1)
+            keel.loop = false
             Music.setSongLoop(false)
         end
     else
         -- 新しい位置にsongEndを設定し、codaを設定
         keel.songEnd = position
         SongEdit.endType = "coda"
+        keel.loop = false
         Music.setSongLoop(false)
     end
 end
 
+-- The arrangement lives in keel; the length row (cursorY == 1) has no region
+-- value of its own, so every helper below is a no-op there.
+local function selectedTrack()
+    if cursorY <= 1 then return nil end
+    return SongEdit.getTrackName(cursorY), SongEdit.scrollOffset + cursorX
+end
+
 function SongEdit.toggleRegion()
-    local trackName = SongEdit.getTrackName(cursorY)
-    local position = SongEdit.scrollOffset + cursorX
-    if mast.song[trackName][position] == 0 then
-        mast.song[trackName][position] = 1
-    else
-        mast.song[trackName][position] = 0
-    end
+    local trackName, position = selectedTrack()
+    if not trackName then return false end
+    keel[trackName][position] = (keel[trackName][position] or 0) == 0 and 1 or 0
+    return true
 end
 
 function SongEdit.incrementRegion()
-    local trackName = SongEdit.getTrackName(cursorY)
-    local position = SongEdit.scrollOffset + cursorX
-    mast.song[trackName][position] = math.min(SongEdit.maxRegions, mast.song[trackName][position] + 1)
+    local trackName, position = selectedTrack()
+    if not trackName then return false end
+    keel[trackName][position] = math.min(SongEdit.maxRegions, (keel[trackName][position] or 0) + 1)
+    return true
 end
 
 function SongEdit.decrementRegion()
-    local trackName = SongEdit.getTrackName(cursorY)
-    local position = SongEdit.scrollOffset + cursorX
-    mast.song[trackName][position] = math.max(0, mast.song[trackName][position] - 1)
+    local trackName, position = selectedTrack()
+    if not trackName then return false end
+    keel[trackName][position] = math.max(0, (keel[trackName][position] or 0) - 1)
+    return true
 end
 
 function SongEdit.copyRegionLeft()
-    local trackName = SongEdit.getTrackName(cursorY)
-    local position = SongEdit.scrollOffset + cursorX
-    if position > 1 then
-        mast.song[trackName][position - 1] = mast.song[trackName][position]
-    end
+    local trackName, position = selectedTrack()
+    if not trackName or position <= 1 then return false end
+    keel[trackName][position - 1] = keel[trackName][position] or 0
+    return true
 end
 
 function SongEdit.copyRegionRight()
-    local trackName = SongEdit.getTrackName(cursorY)
-    local position = SongEdit.scrollOffset + cursorX
-    if position < SongEdit.songLength then
-        mast.song[trackName][position + 1] = mast.song[trackName][position]
-    end
+    local trackName, position = selectedTrack()
+    if not trackName or position >= SongEdit.songLength then return false end
+    keel[trackName][position + 1] = keel[trackName][position] or 0
+    return true
 end
 
 function SongEdit.draw()
@@ -261,14 +237,15 @@ function SongEdit.draw()
 
     if SongEdit.endType == "coda" then
         assets.songLoopModes:drawImage(1, endPos, 216)
-
         assets.fonts.cavs:drawTextAligned("Coda", 40, 90, kTextAlignment.center)
-    else
+    elseif SongEdit.endType == "d.c." then
         assets.songLoopModes:drawImage(2, endPos, 216)
         assets.fonts.cavs:drawTextAligned("D.C.", 40, 90, kTextAlignment.center)
+    else
+        assets.fonts.cavs:drawTextAligned("End", 40, 90, kTextAlignment.center)
     end
 
-    gfx.drawText(Music.currentPosition .. "  /  " .. SongEdit.scrollOffset, 300, 50)
+    gfx.drawText(Music.currentPosition .. "  /  " .. keel.songEnd, 300, 50)
 
 
 

@@ -4,51 +4,10 @@ DrumEdit = {}
 
 
 
-DrumEdit.sampleList = {
-    "08_CH",
-    "08_CP",
-    "08_OH",
-    "09_BD",
-    "09_CH",
-    "09_LM",
-    "09_OH",
-    "09_SN",
-    "09_TM",
-    "77_BD",
-    "77_CH",
-    "77_CL",
-    "77_HT",
-    "77_LT",
-    "77_OH",
-    "77_SN",
-    "78_CB",
-    "78_CH",
-    "78_CL",
-    "78_MR",
-    "78_OH",
-    "78_TB"
-}
+-- The picker itself lives in SampleSelector so SynthEdit can share it.
+DrumEdit.sampleList = SampleSelector.list
 
 
-
-
-
-DrumEdit.sampleSelector = {
-    isOpen = false,
-    selectedIndex = 1,
-    scrollOffset = 0,
-    maxVisibleItems = 7,
-    itemHeight = 20,
-    width = 360,
-    height = 180,
-    x = (400 - 360) / 2,
-    y = (240 - 180) / 2,
-    targetDrum = nil
-}
-
-
-
-local sail = sail
 
 -- UI components
 DrumEdit.VFader = {}
@@ -212,97 +171,22 @@ function DrumEdit.Button:draw()
 end
 
 function DrumEdit.showSampleSelector(drumNumber)
-    local selector = DrumEdit.sampleSelector
-    selector.isOpen = true
-    selector.targetDrum = drumNumber
-    selector.selectedIndex = 1
-    selector.scrollOffset = 0
-    cursor.hide()
-    currentFocus = "dialog"
+    local drumData = sail["drum" .. drumNumber]
+    SampleSelector.open("Select Sample", drumData and drumData.loadSample, function(name)
+        return Sounds.loadDrumSample(drumNumber, name)
+    end)
 end
 
 function DrumEdit.handleSampleSelector()
-    local selector = DrumEdit.sampleSelector
-
-    if KeyManager.justReleased(KeyManager.keys.up) or CrankManager.forwardTick then
-        selector.selectedIndex = math.max(1, selector.selectedIndex - 1)
-        if selector.selectedIndex <= selector.scrollOffset then
-            selector.scrollOffset = selector.selectedIndex - 1
-        end
-    elseif KeyManager.justReleased(KeyManager.keys.down) or CrankManager.backwardTick then
-        selector.selectedIndex = math.min(#DrumEdit.sampleList, selector.selectedIndex + 1)
-        if selector.selectedIndex > selector.scrollOffset + selector.maxVisibleItems then
-            selector.scrollOffset = selector.selectedIndex - selector.maxVisibleItems
-        end
-    elseif KeyManager.justReleased(KeyManager.keys.a) then
-        local selectedSample = DrumEdit.sampleList[selector.selectedIndex]
-
-        sail["drum" .. selector.targetDrum].loadSample = selectedSample
-
-        Sounds.loadDrumSample(selector.targetDrum, selectedSample)
-
-
-        DrumEdit.closeSampleSelector()
-    end
+    SampleSelector.handleInput()
 end
 
 function DrumEdit.closeSampleSelector()
-    local selector = DrumEdit.sampleSelector
-    selector.isOpen = false
-    cursor.show()
-    currentFocus = "main"
+    SampleSelector.close()
 end
 
 function DrumEdit.drawSampleSelector()
-    if not DrumEdit.sampleSelector.isOpen then return end
-    local selector = DrumEdit.sampleSelector
-
-
-    gfx.setColor(gfx.kColorWhite)
-    gfx.setDitherPattern(0.5)
-    gfx.fillRect(0, 0, 400, 240)
-
-
-    gfx.setColor(gfx.kColorWhite)
-    gfx.fillRoundRect(selector.x, selector.y, selector.width, selector.height, 0)
-    gfx.setColor(gfx.kColorBlack)
-    gfx.drawRoundRect(selector.x, selector.y, selector.width, selector.height, 0)
-
-    gfx.drawTextAligned("*Select Sample*", selector.x + selector.width / 2,
-        selector.y + 10, kTextAlignment.center)
-
-    gfx.drawRect(selector.x + 10, selector.y + 28, selector.width - 30,
-        selector.itemHeight * selector.maxVisibleItems + 1)
-    gfx.drawRect(selector.x + selector.width - 21, selector.y + 28, 17,
-        selector.itemHeight * selector.maxVisibleItems + 1)
-
-
-    for i = 1, math.min(selector.maxVisibleItems, #DrumEdit.sampleList - selector.scrollOffset) do
-        local index = i + selector.scrollOffset
-        local y = selector.y + 28 + (i - 1) * selector.itemHeight
-
-        gfx.setDitherPattern(0.5)
-        gfx.drawRect(selector.x + 10, y, selector.width - 30, selector.itemHeight + 1)
-        gfx.setDitherPattern(0)
-
-        if index == selector.selectedIndex then
-            gfx.fillRect(selector.x + 10, y, selector.width - 30, selector.itemHeight)
-            gfx.setImageDrawMode(gfx.kDrawModeInverted)
-        end
-
-        gfx.drawText("💽", selector.x + 15, y + 6)
-        assets.fonts.nada:drawText(DrumEdit.sampleList[index], selector.x + 35, y + 6)
-        gfx.setImageDrawMode(gfx.kDrawModeCopy)
-    end
-
-
-    if #DrumEdit.sampleList > selector.maxVisibleItems then
-        local scrollBarHeight = (selector.maxVisibleItems / #DrumEdit.sampleList) * (selector.height - 80)
-        local scrollBarY = selector.y + 28 +
-            (selector.scrollOffset / (#DrumEdit.sampleList - selector.maxVisibleItems)) *
-            (selector.height - 40 - scrollBarHeight)
-        gfx.fillRoundRect(selector.x + selector.width - 19, scrollBarY, 13, scrollBarHeight, 2)
-    end
+    SampleSelector.draw()
 end
 
 function DrumEdit.load()
@@ -316,10 +200,9 @@ function DrumEdit.load()
     for i = 3, 6 do
         local drumData = sail["drum" .. i]
         if drumData and drumData.loadSample then
-            local samplePath = drumData.loadSample
+            local samplePath = Sounds.getSamplePath(drumData.loadSample)
             if playdate.file.exists(samplePath) then
                 sail["drum" .. i].sample = samplePath
-                Sounds.loadDrumSample(i, samplePath)
             else
                 console.log("Sample not found: " .. samplePath)
                 sail["drum" .. i].sample = nil
@@ -360,11 +243,9 @@ function DrumEdit.init()
     for i = 3, 6 do
         local drumData = sail["drum" .. i]
         if drumData and drumData.loadSample then
-            local samplePath = drumData.loadSample
+            local samplePath = Sounds.getSamplePath(drumData.loadSample)
             if playdate.file.exists(samplePath) then
                 sail["drum" .. i].sample = samplePath
-
-                Sounds.loadDrumSample(i, samplePath)
             else
                 console.log("Sample not found: " .. samplePath)
                 sail["drum" .. i].sample = nil
@@ -442,8 +323,8 @@ function DrumEdit.drawDialog()
 end
 
 function DrumEdit.handleInput()
-    if DrumEdit.sampleSelector.isOpen then
-        DrumEdit.handleSampleSelector()
+    if SampleSelector.isOpen() then
+        SampleSelector.handleInput()
         return
     end
 
@@ -645,9 +526,7 @@ function DrumEdit.draw()
         component:draw()
     end
 
-    if DrumEdit.sampleSelector.isOpen then
-        DrumEdit.drawSampleSelector()
-    end
+    -- SampleSelector draws on top of every page from playdate.update.
     if DrumEdit.dialog.isOpen then
         DrumEdit.drawDialog()
     end
