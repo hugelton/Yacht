@@ -3,7 +3,8 @@ name: Fune bridge smoke
 on:
   push:
     branches:
-      - experiment/fune-core
+      - main
+      - integration/fune-core-main
   pull_request:
 
 jobs:
@@ -17,7 +18,9 @@ jobs:
         run: |
           lua5.4 -e "assert(loadfile('Source/FuneBridge.lua'))"
           lua5.4 -e "assert(loadfile('Source/Music.lua'))"
+      - name: Legacy Music smoke test without FuneCore
+        run: lua5.4 tests/music_smoke.lua
       - name: Bridge smoke test
         run: lua5.4 tests/funebridge_smoke.lua
-      - name: Music takeover smoke test
+      - name: Music takeover smoke test with injected FuneCore
         run: lua5.4 tests/music_fune_smoke.lua
