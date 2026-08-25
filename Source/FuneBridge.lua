@@ -6,6 +6,8 @@ FuneBridge = {
     lastActions = {},
     error = nil,
     menuItem = nil,
+    sourceRefs = nil,
+    dirty = false,
 }
 
 local function now()
@@ -64,6 +66,27 @@ function FuneBridge:isActive()
     return self.mode == "active" and self.runtime ~= nil
 end
 
+function FuneBridge:captureSourceRefs()
+    self.sourceRefs = {
+        mast = mast,
+        keel = keel,
+        boat = boat,
+        settings = settings,
+    }
+end
+
+function FuneBridge:sourcesReplaced()
+    if not self.sourceRefs then return false end
+    return self.sourceRefs.mast ~= mast
+        or self.sourceRefs.keel ~= keel
+        or self.sourceRefs.boat ~= boat
+        or self.sourceRefs.settings ~= settings
+end
+
+function FuneBridge:markDirty()
+    self.dirty = true
+end
+
 function FuneBridge:rebuild(mode)
     mode = mode or self.mode
     if mode ~= "shadow" and mode ~= "active" then
@@ -100,6 +123,7 @@ function FuneBridge:rebuild(mode)
         self.runtime = nil
         self.mode = "disabled"
         self.lastTime = nil
+        self.sourceRefs = nil
         self.error = tostring(result)
         return false, self.error
     end
@@ -110,7 +134,31 @@ function FuneBridge:rebuild(mode)
     self.lastEvents = {}
     self.lastActions = {}
     self.error = nil
+    self.dirty = false
+    self:captureSourceRefs()
+    self:syncLegacyTransport()
     return true
+end
+
+function FuneBridge:reloadProject()
+    if not self:isEnabled() then return false, "FuneBridge is disabled" end
+    local wasPlaying = self.runtime:is_playing()
+    local mode = self.mode
+    local ok, message = self:rebuild(mode)
+    if not ok then return false, message end
+
+    -- Source replacement (Load) normally clears Yacht's play state, while an
+    -- explicit markDirty during editing may happen with transport running.
+    if wasPlaying and mast and mast.isPlaying then
+        self:play()
+    end
+    return true
+end
+
+function FuneBridge:refreshProjectIfNeeded()
+    if not self:isEnabled() then return true end
+    if not self:sourcesReplaced() and not self.dirty then return true end
+    return self:reloadProject()
 end
 
 function FuneBridge:enableShadow()
@@ -139,6 +187,8 @@ function FuneBridge:disable()
     self.lastTime = nil
     self.lastEvents = {}
     self.lastActions = {}
+    self.sourceRefs = nil
+    self.dirty = false
     if Music then Music.state = false end
     if mast then mast.isPlaying = false end
 end
@@ -219,6 +269,21 @@ function FuneBridge:stop()
     return true
 end
 
+function FuneBridge:syncLegacyTransport()
+    if not self.runtime or not mast then return end
+    if self.runtime.set_tempo then
+        self.runtime:set_tempo(tonumber(mast.bpm) or 120, tonumber(mast.swing) or 0)
+    elseif self.runtime.transport then
+        if self.runtime.transport.set_bpm then
+            self.runtime.transport:set_bpm(tonumber(mast.bpm) or 120)
+        end
+        if self.runtime.transport.set_swing then
+            local swing = math.max(0, math.min(50, tonumber(mast.swing) or 0)) / 50
+            self.runtime.transport:set_swing(swing)
+        end
+    end
+end
+
 function FuneBridge:syncLegacyNavigation()
     if not self.runtime or not Music then return end
     if not self.runtime.mode_name or not self.runtime.position_value then return end
@@ -265,6 +330,7 @@ function FuneBridge:syncLegacyIndicators()
 end
 
 function FuneBridge:syncLegacyState()
+    self:syncLegacyTransport()
     self:syncLegacyNavigation()
     self:syncLegacyPlayback()
     self:syncLegacyIndicators()
@@ -291,6 +357,10 @@ end
 
 function FuneBridge:update(dt)
     if not self.runtime then return {} end
+    local ok = self:refreshProjectIfNeeded()
+    if not ok or not self.runtime then return {} end
+
+    self:syncLegacyTransport()
     self:syncLegacyNavigation()
     self:syncLegacyPlayback()
 
@@ -309,6 +379,10 @@ end
 
 function FuneBridge:receiveMidi(data)
     if not self.runtime then return {}, {} end
+    local ok = self:refreshProjectIfNeeded()
+    if not ok or not self.runtime then return {}, {} end
+    self:syncLegacyTransport()
+
     local events, actions = self.runtime:receive_midi(data)
     self.lastEvents = events or {}
     self.lastActions = actions or {}
