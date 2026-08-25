@@ -8,7 +8,12 @@ FuneBridge = {
     menuItem = nil,
     sourceRefs = nil,
     dirty = false,
+    fingerprint = nil,
+    nextFingerprintTime = 0,
 }
+
+local FINGERPRINT_INTERVAL <const> = 1.0
+local HASH_MOD <const> = 2147483647
 
 local function now()
     if playdate and playdate.sound and playdate.sound.getCurrentTime then
@@ -52,6 +57,91 @@ local function legacyPosition()
     return 1
 end
 
+local function hashMix(hash, value)
+    local valueType = type(value)
+    local number
+
+    if valueType == "number" then
+        number = math.floor(value * 10000 + (value >= 0 and 0.5 or -0.5))
+    elseif valueType == "boolean" then
+        number = value and 1 or 0
+    elseif valueType == "string" then
+        for index = 1, #value do
+            hash = (hash * 65599 + value:byte(index)) % HASH_MOD
+        end
+        return hash
+    elseif value == nil then
+        number = 0
+    else
+        number = 97
+    end
+
+    number = number % HASH_MOD
+    return (hash * 65599 + number) % HASH_MOD
+end
+
+local function hashArray(hash, values, count)
+    values = values or {}
+    hash = hashMix(hash, count)
+    for index = 1, count do
+        hash = hashMix(hash, values[index])
+    end
+    return hash
+end
+
+local function projectFingerprint()
+    local hash = 5381
+    local steps = math.max(1, tonumber(mast and mast.steps) or 16)
+    local songEnd = math.max(1, tonumber(keel and keel.songEnd) or 1)
+
+    hash = hashMix(hash, steps)
+    hash = hashMix(hash, mast and mast.measure)
+    hash = hashMix(hash, keel and keel.loop)
+    hash = hashMix(hash, songEnd)
+
+    for _, trackName in ipairs({ "synth1", "synth2", "synth3", "drums" }) do
+        hash = hashArray(hash, keel and keel[trackName], songEnd)
+    end
+
+    local synthRegions = boat and boat.synths or {}
+    hash = hashMix(hash, #synthRegions)
+    for regionIndex = 1, #synthRegions do
+        local group = synthRegions[regionIndex] or {}
+        for synthIndex = 1, 3 do
+            local pattern = group[synthIndex] or {}
+            hash = hashArray(hash, pattern.notes, steps)
+            hash = hashArray(hash, pattern.length, steps)
+            hash = hashArray(hash, pattern.pan, steps)
+            hash = hashArray(hash, pattern.velos, steps)
+        end
+    end
+
+    local drumRegions = boat and boat.drums or {}
+    hash = hashMix(hash, #drumRegions)
+    for regionIndex = 1, #drumRegions do
+        local pattern = drumRegions[regionIndex] or {}
+        local rows = pattern.patterns or {}
+        for drumIndex = 1, 6 do
+            hash = hashArray(hash, rows[drumIndex], steps)
+        end
+        hash = hashArray(hash, pattern.velos, steps)
+        hash = hashArray(hash, pattern.chance, steps)
+        hash = hashArray(hash, pattern.active, steps)
+        hash = hashArray(hash, pattern.accent, steps)
+    end
+
+    local midiChannels = settings and settings.midiChannels or {}
+    for _, key in ipairs({ "syn1", "syn2", "syn3", "drums" }) do
+        hash = hashMix(hash, midiChannels[key])
+    end
+    local drumNotes = settings and settings.drumMidiNotes or {}
+    for _, key in ipairs({ "kick", "snare", "closedHiHat", "openHiHat", "percussion1", "percussion2" }) do
+        hash = hashMix(hash, drumNotes[key])
+    end
+
+    return hash
+end
+
 function FuneBridge:available()
     return type(FunePlaydate) == "table"
         and type(FunePlaydate.yacht_runtime) == "table"
@@ -85,6 +175,19 @@ end
 
 function FuneBridge:markDirty()
     self.dirty = true
+end
+
+function FuneBridge:pollProjectFingerprint(force)
+    if not self:isEnabled() then return end
+    local currentTime = now()
+    if not force and currentTime < self.nextFingerprintTime then return end
+    self.nextFingerprintTime = currentTime + FINGERPRINT_INTERVAL
+
+    local current = projectFingerprint()
+    if self.fingerprint ~= nil and current ~= self.fingerprint then
+        self.dirty = true
+    end
+    self.fingerprint = current
 end
 
 function FuneBridge:rebuild(mode)
@@ -124,6 +227,7 @@ function FuneBridge:rebuild(mode)
         self.mode = "disabled"
         self.lastTime = nil
         self.sourceRefs = nil
+        self.fingerprint = nil
         self.error = tostring(result)
         return false, self.error
     end
@@ -136,6 +240,8 @@ function FuneBridge:rebuild(mode)
     self.error = nil
     self.dirty = false
     self:captureSourceRefs()
+    self.fingerprint = projectFingerprint()
+    self.nextFingerprintTime = now() + FINGERPRINT_INTERVAL
     self:syncLegacyTransport()
     return true
 end
@@ -157,8 +263,19 @@ end
 
 function FuneBridge:refreshProjectIfNeeded()
     if not self:isEnabled() then return true end
-    if not self:sourcesReplaced() and not self.dirty then return true end
-    return self:reloadProject()
+
+    if self:sourcesReplaced() then
+        return self:reloadProject()
+    end
+
+    if self.dirty then
+        -- Do not jump the transport while the user is listening. Edits made
+        -- during playback are picked up on the next pause/play cycle.
+        if self.runtime:is_playing() then return true end
+        return self:reloadProject()
+    end
+
+    return true
 end
 
 function FuneBridge:enableShadow()
@@ -189,6 +306,8 @@ function FuneBridge:disable()
     self.lastActions = {}
     self.sourceRefs = nil
     self.dirty = false
+    self.fingerprint = nil
+    self.nextFingerprintTime = 0
     if Music then Music.state = false end
     if mast then mast.isPlaying = false end
 end
@@ -302,7 +421,9 @@ function FuneBridge:syncLegacyPlayback()
     local legacyPlaying = Music.state == true
     local funePlaying = self.runtime:is_playing()
     if legacyPlaying and not funePlaying then
-        self:play()
+        self:pollProjectFingerprint(true)
+        local ok = self:refreshProjectIfNeeded()
+        if ok and self.runtime then self:play() end
     elseif not legacyPlaying and funePlaying then
         self:pause()
     end
@@ -341,6 +462,12 @@ function FuneBridge:togglePlayback()
         if self.runtime:is_playing() then
             return self:pause()
         end
+
+        -- Force a cheap data check immediately before playback so edits made
+        -- while stopped are reflected without resetting ordinary pause/resume.
+        self:pollProjectFingerprint(true)
+        local ok = self:refreshProjectIfNeeded()
+        if not ok or not self.runtime then return false end
         return self:play()
     end
 
@@ -357,6 +484,7 @@ end
 
 function FuneBridge:update(dt)
     if not self.runtime then return {} end
+    self:pollProjectFingerprint(false)
     local ok = self:refreshProjectIfNeeded()
     if not ok or not self.runtime then return {} end
 
@@ -379,6 +507,7 @@ end
 
 function FuneBridge:receiveMidi(data)
     if not self.runtime then return {}, {} end
+    self:pollProjectFingerprint(false)
     local ok = self:refreshProjectIfNeeded()
     if not ok or not self.runtime then return {}, {} end
     self:syncLegacyTransport()
