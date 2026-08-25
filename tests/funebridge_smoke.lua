@@ -80,6 +80,27 @@ assert(mast.isPlaying == false, "active pause must mirror mast playback state")
 assert(bridge.queueScene(2) == 384, "bridge must expose quantized scene queueing")
 assert(bridge.sceneId() == "yacht_scene_02", "bridge must expose current Fune scene")
 
+local selected_callback
+local menu = {}
+function menu:addOptionsMenuItem(title, options, initial, callback)
+    assert(title == "Fune", "bridge menu title must be short")
+    assert(#options == 3 and options[1] == "Off" and options[2] == "Shadow" and options[3] == "Active",
+        "bridge menu must expose three rollout modes")
+    assert(initial == "Off", "bridge menu must default to Off")
+    selected_callback = callback
+    return { setValue = function() end }
+end
+
+bridge:disable()
+local item = bridge.installMenu(menu)
+assert(item and selected_callback, "bridge must install an options menu item")
+selected_callback("Shadow")
+assert(bridge.mode == "shadow", "system menu Shadow option must enable shadow runtime")
+selected_callback("Active")
+assert(bridge.mode == "active", "system menu Active option must enable audio takeover")
+selected_callback("Off")
+assert(bridge.mode == "disabled", "system menu Off option must disable Fune runtime")
+
 bridge:disable()
 assert(not bridge.isEnabled() and bridge.mode == "disabled", "disable must tear down runtime")
 
