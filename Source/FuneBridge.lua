@@ -97,7 +97,9 @@ function FuneBridge:rebuild(mode)
 end
 
 function FuneBridge:enableShadow()
-    return self:rebuild("shadow")
+    local ok, message = self:rebuild("shadow")
+    if ok then self:syncLegacyPlayback() end
+    return ok, message
 end
 
 function FuneBridge:enableActive()
@@ -197,8 +199,36 @@ function FuneBridge:stop()
     return true
 end
 
+function FuneBridge:syncLegacyPlayback()
+    if self.mode ~= "shadow" or not self.runtime or not Music then return end
+    local legacyPlaying = Music.state == true
+    local funePlaying = self.runtime:is_playing()
+    if legacyPlaying and not funePlaying then
+        self:play()
+    elseif not legacyPlaying and funePlaying then
+        self:pause()
+    end
+end
+
+function FuneBridge:togglePlayback()
+    if self:isActive() then
+        if self.runtime:is_playing() then
+            return self:pause()
+        end
+        return self:play()
+    end
+
+    if Music and Music.flipState then
+        Music.flipState()
+        self:syncLegacyPlayback()
+        return true
+    end
+    return false
+end
+
 function FuneBridge:update(dt)
     if not self.runtime then return {} end
+    self:syncLegacyPlayback()
 
     if dt == nil then
         local current = now()
