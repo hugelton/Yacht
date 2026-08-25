@@ -61,7 +61,7 @@ local function tickDuration(tick, bpm, swingPercent)
     local clampedSwing = math.max(0, math.min(MAX_SWING_PERCENT, swingPercent or 0))
     local swingAmount = clampedSwing / 100
 
-    -- Swing delays the even 16th while preserving the duration of each pair.
+    -- Swing delays the odd 16th while preserving each pair duration.
     -- At 0% both ticks are straight; at 50% the pair is split 75/25.
     if tick % 2 == 1 then
         return baseTickTime * (1 + swingAmount)
@@ -204,6 +204,52 @@ end
 
 function Music.getAllCurrentBlocks()
     return Music.currentBlocks
+end
+
+-- Optional Fune Core integration ---------------------------------------------
+-- FuneBridge is public and safe to ship with Yacht. The private/generated
+-- FuneCore bundle is not imported here; the Fune installer adds that import to
+-- a local checkout. Without FuneCore, FuneBridge:available() stays false and
+-- these wrappers preserve the legacy playback path exactly.
+Music._legacyFlipState = Music.flipState
+Music._legacyRefresh = Music.Refresh
+
+import "FuneBridge"
+
+local funeMenuInstalled = false
+
+local function ensureFuneMenu()
+    if funeMenuInstalled then return end
+    if not FuneBridge or not FuneBridge.available or not FuneBridge:available() then return end
+    local item = FuneBridge:installMenu()
+    if item then funeMenuInstalled = true end
+end
+
+function Music.flipState()
+    ensureFuneMenu()
+
+    if FuneBridge and FuneBridge:isActive() then
+        return FuneBridge:togglePlayback()
+    end
+
+    Music._legacyFlipState()
+    if FuneBridge and FuneBridge:isEnabled() then
+        FuneBridge:syncLegacyPlayback()
+    end
+end
+
+function Music.Refresh()
+    ensureFuneMenu()
+
+    if FuneBridge and FuneBridge:isActive() then
+        FuneBridge:update()
+        return
+    end
+
+    Music._legacyRefresh()
+    if FuneBridge and FuneBridge:isEnabled() then
+        FuneBridge:update()
+    end
 end
 
 return Music

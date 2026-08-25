@@ -6,6 +6,16 @@ playdate = {
 }
 console = { log = function() end }
 
+-- Public Yacht main ships FuneBridge but not the private/generated FuneCore.
+-- This import shim models pdc loading the bridge while leaving FunePlaydate nil.
+function import(name)
+    if name == "FuneBridge" then
+        dofile("Source/FuneBridge.lua")
+        return
+    end
+    error("unexpected import in legacy smoke test: " .. tostring(name))
+end
+
 local synthCalls = {}
 local drumCalls = {}
 Sounds = {
@@ -95,6 +105,7 @@ local function resetTrackPositions()
 end
 
 dofile("Source/Music.lua")
+assert(FuneBridge and not FuneBridge:available(), "legacy build must tolerate missing FuneCore")
 
 -- Region mode must play the selected region directly, independent of keel.
 Music.state = true
@@ -136,7 +147,7 @@ fakeTime = 0.125
 Music.Refresh()
 assert(Music.tick == 2, "straight timing must advance after one 16th note")
 
--- 50% swing delays the even 16th to 0.1875 seconds while preserving the pair.
+-- 50% swing delays the odd 16th to 0.1875 seconds while preserving the pair.
 dofile("Source/Music.lua")
 fakeTime = 0
 mast.swing = 50
