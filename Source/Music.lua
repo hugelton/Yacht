@@ -1,5 +1,18 @@
 Music = {}
 
+local SYNTH_TRACK_PREFIX <const> = "synth"
+local DRUM_TRACK <const> = "drums"
+local DEFAULT_BPM <const> = 120
+local DEFAULT_SONG_END <const> = 64
+local TICKS_PER_BEAT <const> = 4
+
+local TRACK_NAMES <const> = {
+    "synth1",
+    "synth2",
+    "synth3",
+    DRUM_TRACK
+}
+
 Music.tick = 1
 Music.mode = "region"
 Music.state = false
@@ -7,40 +20,88 @@ Music.maxTick = 16
 Music.songLoop = true
 Music.currentPosition = 1
 
-Music.trackRegions = {
-    synth1 = 1,
-    synth2 = 1,
-    synth3 = 1,
-    drums = 1
-}
-
-Music.currentBlocks = {
-    synth1 = 0,
-    synth2 = 0,
-    synth3 = 0,
-    drums = 0
-}
+Music.trackRegions = {}
+Music.currentBlocks = {}
+for _, track in ipairs(TRACK_NAMES) do
+    Music.trackRegions[track] = 1
+    Music.currentBlocks[track] = 0
+end
 
 local lastTickTime = 0
 local accumulatedTime = 0
 
-
-
-local function safeGet(t, ...)
-    for _, k in ipairs({ ... }) do
-        if type(t) ~= "table" then return nil end
-        t = t[k]
+local function safeGet(value, ...)
+    for _, key in ipairs({ ... }) do
+        if type(value) ~= "table" then return nil end
+        value = value[key]
     end
-    return t
+    return value
+end
+
+local function isSynthTrack(track)
+    return track:sub(1, #SYNTH_TRACK_PREFIX) == SYNTH_TRACK_PREFIX
+end
+
+local function synthIndexForTrack(track)
+    if not isSynthTrack(track) then return nil end
+    return tonumber(track:sub(#SYNTH_TRACK_PREFIX + 1))
+end
+
+local function resetSongPosition()
+    Music.currentPosition = 1
+    for track in pairs(Music.trackRegions) do
+        Music.trackRegions[track] = 1
+    end
+end
+
+local function tickDuration(tick, bpm, swing)
+    local beatTime = 60.0 / bpm
+    local baseTickTime = beatTime / TICKS_PER_BEAT
+    if tick % 2 == 1 then
+        return baseTickTime * (2 - swing)
+    end
+    return baseTickTime * (2 + swing)
+end
+
+local function currentRegionForTrack(track, regionNumber)
+    local synthIndex = synthIndexForTrack(track)
+    if synthIndex then
+        -- Preserve the current data lookup behavior. Region selection is handled
+        -- separately by trackRegions/currentBlocks in the existing song model.
+        return safeGet(boat.synths, 1, synthIndex), synthIndex
+    end
+
+    if track == DRUM_TRACK then
+        return safeGet(boat.drums, regionNumber), nil
+    end
+
+    return nil, nil
+end
+
+local function playSynthStep(region, synthIndex)
+    local note = safeGet(region.notes, Music.tick)
+    if not note or note <= 0 then return end
+
+    local velocity = safeGet(region.velos, Music.tick) or 1
+    local length = safeGet(region.length, Music.tick) or 1
+    Sounds.playMidiSynth(synthIndex, note, velocity, length)
+end
+
+local function playDrumStep(region)
+    if not region.patterns then return end
+
+    local velocity = safeGet(region.velos, Music.tick) or 1
+    for drumIndex = 1, 6 do
+        if safeGet(region.patterns, drumIndex, Music.tick) == 1 then
+            Sounds.playDrum(drumIndex, velocity)
+        end
+    end
 end
 
 function Music.flipMode()
     Music.mode = Music.mode == "region" and "song" or "region"
     if Music.mode == "song" then
-        for track in pairs(Music.trackRegions) do
-            Music.trackRegions[track] = 1
-        end
-        Music.currentPosition = 1
+        resetSongPosition()
     end
     console.log("Switching to " .. Music.mode .. " mode")
 end
@@ -57,27 +118,19 @@ function Music.Refresh()
     if not Music.state then return end
 
     local currentTime = playdate.sound.getCurrentTime()
-    local elapsedTime = currentTime - lastTickTime
-    accumulatedTime = accumulatedTime + elapsedTime
+    accumulatedTime = accumulatedTime + (currentTime - lastTickTime)
 
-    local bpm = mast.bpm or 120
+    local bpm = mast.bpm or DEFAULT_BPM
     local swing = mast.swing or 0
-    local beatTime = 60.0 / bpm
-    local tickTime = beatTime / 4
-
-
-    local evenTickTime = tickTime * (2 - swing)
-    local oddTickTime = tickTime * (2 + swing)
-    local currentTickTime = (Music.tick % 2 == 1) and evenTickTime or oddTickTime
+    local currentTickTime = tickDuration(Music.tick, bpm, swing)
 
     while accumulatedTime >= currentTickTime do
         accumulatedTime = accumulatedTime - currentTickTime
-
         Music.tick = (Music.tick % Music.maxTick) + 1
 
         if Music.tick == 1 then
             if Music.mode == "song" then
-                Music.currentPosition = (Music.currentPosition % (keel.songEnd or 64)) + 1
+                Music.currentPosition = (Music.currentPosition % (keel.songEnd or DEFAULT_SONG_END)) + 1
                 for track in pairs(Music.trackRegions) do
                     Music.trackRegions[track] = Music.currentPosition
                 end
@@ -93,8 +146,7 @@ function Music.Refresh()
 
         Music.updateCurrentBlocks()
         Music.next()
-
-        currentTickTime = (Music.tick % 2 == 1) and evenTickTime or oddTickTime
+        currentTickTime = tickDuration(Music.tick, bpm, swing)
     end
 
     lastTickTime = currentTime
@@ -108,32 +160,12 @@ function Music.next()
         Music.currentBlocks[track] = regionNumber
 
         if regionNumber > 0 then
-            local currentRegion
-            if track:sub(1, 5) == "synth" then
-                local synthIndex = tonumber(track:sub(6))
-                currentRegion = safeGet(boat.synths, 1, synthIndex)
-            elseif track == "drums" then
-                currentRegion = safeGet(boat.drums, regionNumber)
-            end
-
-            if currentRegion then
-                if track:sub(1, 5) == "synth" then
-                    local synthIndex = tonumber(track:sub(6))
-                    local note = safeGet(currentRegion.notes, Music.tick)
-                    local velocity = safeGet(currentRegion.velos, Music.tick) or 1
-                    local length = safeGet(currentRegion.length, Music.tick) or 1
-                    if note and note > 0 then
-                        Sounds.playMidiSynth(synthIndex, note, velocity, length)
-                    end
-                elseif track == "drums" then
-                    if currentRegion.patterns then
-                        for i = 1, 6 do
-                            if safeGet(currentRegion.patterns, i, Music.tick) == 1 then
-                                local velocity = safeGet(currentRegion.velos, Music.tick) or 1
-                                Sounds.playDrum(i, velocity)
-                            end
-                        end
-                    end
+            local region, synthIndex = currentRegionForTrack(track, regionNumber)
+            if region then
+                if synthIndex then
+                    playSynthStep(region, synthIndex)
+                elseif track == DRUM_TRACK then
+                    playDrumStep(region)
                 end
             end
         end
