@@ -84,10 +84,17 @@ local function fake_runtime(args)
     return runtime
 end
 
+-- The private Fune bundle is injected externally by the Fune installer before
+-- Yacht compiles. Model that here by preloading the global before Music imports
+-- the always-public FuneBridge module.
+FunePlaydate = {
+    yacht_runtime = {
+        new = fake_runtime,
+    },
+}
+
 function import(name)
-    if name == "FuneCore" then
-        FunePlaydate = { yacht_runtime = { new = fake_runtime } }
-    elseif name == "FuneBridge" then
+    if name == "FuneBridge" then
         dofile("Source/FuneBridge.lua")
     else
         error("unexpected import in Music smoke test: " .. tostring(name))
