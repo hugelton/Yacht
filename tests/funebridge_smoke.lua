@@ -56,20 +56,20 @@ FunePlaydate = {
 }
 
 local bridge = dofile("Source/FuneBridge.lua")
-assert(bridge.available(), "FuneBridge must detect loaded FuneCore")
-assert(not bridge.isEnabled(), "bridge must begin disabled")
+assert(bridge:available(), "FuneBridge must detect loaded FuneCore")
+assert(not bridge:isEnabled(), "bridge must begin disabled")
 
-local ok = bridge.enableShadow()
+local ok = bridge:enableShadow()
 assert(ok and bridge.mode == "shadow", "shadow mode must initialize")
 assert(created[#created].args.sounds ~= Sounds, "shadow mode must not route into Yacht Sounds")
 bridge:play()
 clock = 10.25
 local events = bridge:update()
 assert(#events == 1, "shadow update must run the Fune runtime")
-assert(math.abs(bridge.tick() - 48) < 1e-9, "wall clock delta must reach Fune runtime")
+assert(math.abs(bridge:tick() - 48) < 1e-9, "wall clock delta must reach Fune runtime")
 
-ok = bridge.enableActive()
-assert(ok and bridge.isActive(), "active mode must initialize")
+ok = bridge:enableActive()
+assert(ok and bridge:isActive(), "active mode must initialize")
 assert(created[#created].args.sounds == Sounds, "active mode must route into Yacht Sounds")
 assert(Music.state == false, "active takeover must disable legacy Music playback")
 bridge:play()
@@ -77,8 +77,8 @@ assert(mast.isPlaying == true, "active play must mirror mast playback state")
 bridge:pause()
 assert(mast.isPlaying == false, "active pause must mirror mast playback state")
 
-assert(bridge.queueScene(2) == 384, "bridge must expose quantized scene queueing")
-assert(bridge.sceneId() == "yacht_scene_02", "bridge must expose current Fune scene")
+assert(bridge:queueScene(2) == 384, "bridge must expose quantized scene queueing")
+assert(bridge:sceneId() == "yacht_scene_02", "bridge must expose current Fune scene")
 
 local selected_callback
 local menu = {}
@@ -92,7 +92,7 @@ function menu:addOptionsMenuItem(title, options, initial, callback)
 end
 
 bridge:disable()
-local item = bridge.installMenu(menu)
+local item = bridge:installMenu(menu)
 assert(item and selected_callback, "bridge must install an options menu item")
 selected_callback("Shadow")
 assert(bridge.mode == "shadow", "system menu Shadow option must enable shadow runtime")
@@ -102,6 +102,6 @@ selected_callback("Off")
 assert(bridge.mode == "disabled", "system menu Off option must disable Fune runtime")
 
 bridge:disable()
-assert(not bridge.isEnabled() and bridge.mode == "disabled", "disable must tear down runtime")
+assert(not bridge:isEnabled() and bridge.mode == "disabled", "disable must tear down runtime")
 
 print("funebridge_smoke.lua: ok")
